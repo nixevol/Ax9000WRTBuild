@@ -1,0 +1,44 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+
+status() {
+	local maximum=0 value device pwm=-1 rpm=-1
+	for sensor in /sys/class/thermal/thermal_zone*/temp; do
+		[ -r "$sensor" ] || continue
+		value="$(cat "$sensor" 2>/dev/null)"
+		case "$value" in *[!0-9]*|'') continue ;; esac
+		[ "$value" -gt "$maximum" ] && maximum="$value"
+	done
+	for device in /sys/class/hwmon/hwmon*; do
+		[ -r "$device/name" ] || continue
+		case "$(cat "$device/name")" in
+			emc2301|emc2305)
+				[ -r "$device/pwm1" ] && pwm="$(cat "$device/pwm1" 2>/dev/null)"
+				[ -r "$device/fan1_input" ] && rpm="$(cat "$device/fan1_input" 2>/dev/null)"
+				break
+			;;
+		esac
+	done
+	case "$pwm" in *[!0-9]*|'') pwm=-1 ;; esac
+	case "$rpm" in *[!0-9]*|'') rpm=-1 ;; esac
+	[ "$pwm" -ge 0 ] && [ "$pwm" -le 255 ] || pwm=-1
+	[ "$rpm" -ge 0 ] || rpm=-1
+	json_init
+	json_add_int temperature "$maximum"
+	json_add_int pwm "${pwm:--1}"
+	json_add_int rpm "${rpm:--1}"
+	json_dump
+}
+
+case "$1:$2" in
+	list:)
+		echo '{ "status": {} }'
+	;;
+	call:status)
+		status
+	;;
+	*)
+		exit 1
+	;;
+esac

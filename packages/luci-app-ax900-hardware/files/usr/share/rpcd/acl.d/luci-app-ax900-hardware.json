@@ -1,0 +1,10 @@
+{
+  "luci-app-ax900-hardware": {
+    "description": "Grant access to AX9000 hardware controls",
+    "read": {
+      "uci": [ "ax900-hardware" ],
+      "ubus": { "ax900-hardware": [ "status" ] }
+    },
+    "write": { "uci": [ "ax900-hardware" ] }
+  }
+}

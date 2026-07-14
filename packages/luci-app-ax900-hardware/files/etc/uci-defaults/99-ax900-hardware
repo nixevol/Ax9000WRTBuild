@@ -1,0 +1,38 @@
+#!/bin/sh
+
+if ! uci -q get 'ax900-hardware.@fan_rule[0]' >/dev/null; then
+	for level in high mid low idle; do
+		case "$level" in
+			high) default_temp=70; default_power=100; default_color=red; operator=ge ;;
+			mid) default_temp=60; default_power=50; default_color=yellow; operator=ge ;;
+			low) default_temp=50; default_power=25; default_color=blue; operator=ge ;;
+			idle) default_temp=50; default_power=0; default_color=green; operator=le ;;
+		esac
+		if [ "$level" = idle ]; then
+			temperature="$default_temp"
+			power="$default_power"
+			color="$default_color"
+		else
+			temperature="$(uci -q get ax900-hardware.main.${level}_temp)"
+			power="$(uci -q get ax900-hardware.main.${level}_percent)"
+			color="$(uci -q get ax900-hardware.main.top_${level}_color)"
+		fi
+		section="$(uci add ax900-hardware fan_rule)"
+		[ "$level" = low ] && temperature="$default_temp"
+		uci set ax900-hardware.$section.operator="$operator"
+		uci set ax900-hardware.$section.threshold="${temperature:-$default_temp}"
+		uci set ax900-hardware.$section.power="${power:-$default_power}"
+		uci set ax900-hardware.$section.led_control='1'
+		uci set ax900-hardware.$section.led_color="${color:-$default_color}"
+	done
+fi
+
+[ "$(uci -q get ax900-hardware.main.top_mode)" = temperature ] && \
+	uci set ax900-hardware.main.top_mode='fixed'
+[ "$(uci -q get ax900-hardware.main.interval)" = 5 ] && \
+	uci -q delete ax900-hardware.main.interval
+uci commit ax900-hardware
+
+/etc/init.d/ax900-hardware enable
+/etc/init.d/ax900-led enable
+exit 0

@@ -1,0 +1,215 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-ax900-hardware\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Fan & LED"
+msgstr "温控与灯光"
+
+msgid "Current status"
+msgstr "实时状态"
+
+msgid "Loading..."
+msgstr "读取中..."
+
+msgid "Unavailable"
+msgstr "不可用"
+
+msgid "No feedback"
+msgstr "无反馈"
+
+msgid "Maximum temperature"
+msgstr "最高温度"
+
+msgid "Fan power"
+msgstr "风扇功率"
+
+msgid "Speed feedback"
+msgstr "转速反馈"
+
+msgid "Fan control"
+msgstr "风扇控制"
+
+msgid "Enable fan control"
+msgstr "启用风扇控制"
+
+msgid "Control mode"
+msgstr "控制模式"
+
+msgid "Automatic"
+msgstr "自动温控"
+
+msgid "Manual fixed power"
+msgstr "手动固定功率"
+
+msgid "Manual fan power"
+msgstr "手动风扇功率"
+
+msgid "Top RGB LED"
+msgstr "顶部 RGB 灯"
+
+msgid "Lighting mode"
+msgstr "灯光模式"
+
+msgid "Off"
+msgstr "关闭"
+
+msgid "Fixed color"
+msgstr "固定颜色"
+
+msgid "Color cycle"
+msgstr "颜色循环"
+
+msgid "Color"
+msgstr "颜色"
+
+msgid "Red"
+msgstr "红色"
+
+msgid "Green"
+msgstr "绿色"
+
+msgid "Blue"
+msgstr "蓝色"
+
+msgid "Yellow"
+msgstr "黄色"
+
+msgid "Purple"
+msgstr "紫色"
+
+msgid "Cyan"
+msgstr "青色"
+
+msgid "White"
+msgstr "白色"
+
+msgid "Blink"
+msgstr "闪烁"
+
+msgid "On time"
+msgstr "亮灯时间"
+
+msgid "Off time"
+msgstr "熄灯时间"
+
+msgid "Color cycle interval"
+msgstr "颜色切换间隔"
+
+msgid "Front LEDs"
+msgstr "正面灯"
+
+msgid "System LED"
+msgstr "系统灯光"
+
+msgid "System LED color"
+msgstr "系统灯颜色"
+
+msgid "System LED on time"
+msgstr "系统灯亮灯时间"
+
+msgid "System LED off time"
+msgstr "系统灯熄灯时间"
+
+msgid "System default"
+msgstr "系统默认"
+
+msgid "System default (%s s)"
+msgstr "系统默认(%s s)"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Reset"
+msgstr "复位"
+
+msgid "Network LED"
+msgstr "网络灯光"
+
+msgid "Network LED color"
+msgstr "网络灯颜色"
+
+msgid "Network LED on time"
+msgstr "网络灯亮灯时间"
+
+msgid "Network LED off time"
+msgstr "网络灯熄灯时间"
+
+msgid "Follow WAN activity"
+msgstr "跟随 WAN 活动"
+
+msgid "Scheduled lighting"
+msgstr "定时开关灯光"
+
+msgid "Enable schedule"
+msgstr "启用定时控制"
+
+msgid "Start time"
+msgstr "开始时间"
+
+msgid "End time"
+msgstr "结束时间"
+
+msgid "Scheduled action"
+msgstr "定时动作"
+
+msgid "Force off"
+msgstr "强制关闭"
+
+msgid "Force on"
+msgstr "强制开启"
+
+msgid "Use 24-hour time in HH:MM format"
+msgstr "请使用 HH:MM 格式的 24 小时时间"
+
+msgid "Automatic control"
+msgstr "自动温控"
+
+msgid "Detection interval"
+msgstr "检测间隔"
+
+msgid "Automatic temperature rules"
+msgstr "自动温控规则"
+
+msgid "Rules are checked from top to bottom; evaluation stops at the first match."
+msgstr "规则从上到下依次判断，命中第一条后停止。"
+
+msgid "Add rule"
+msgstr "添加规则"
+
+msgid "Condition"
+msgstr "条件"
+
+msgid "Temperature"
+msgstr "温度"
+
+msgid "Control top RGB"
+msgstr "控制顶部 RGB"
+
+msgid "LED color"
+msgstr "灯光颜色"
+
+msgid "Follow network connectivity"
+msgstr "跟随网络连通状态"
+
+msgid "Ping target"
+msgstr "Ping 目标"
+
+msgid "Reachable color"
+msgstr "通畅时颜色"
+
+msgid "Blink when reachable"
+msgstr "通畅时闪烁"
+
+msgid "Unreachable color"
+msgstr "不通时颜色"
+
+msgid "Blink when unreachable"
+msgstr "不通时闪烁"

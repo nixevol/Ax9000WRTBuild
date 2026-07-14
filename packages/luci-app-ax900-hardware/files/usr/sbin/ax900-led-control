@@ -1,0 +1,368 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+TOP_RED="/sys/class/leds/red:"
+TOP_GREEN="/sys/class/leds/green:"
+TOP_BLUE="/sys/class/leds/blue:_2"
+SYSTEM_BLUE="/sys/class/leds/blue:"
+SYSTEM_YELLOW="/sys/class/leds/yellow:"
+NETWORK_BLUE="/sys/class/leds/blue:_1"
+NETWORK_YELLOW="/sys/class/leds/yellow:_1"
+WIFI_ACTIVITY_LED="/sys/class/leds/ath10k-phy0"
+RELOAD_FILE="/var/run/ax900-led.reload"
+AUX_OFF_FILE="/var/run/ax900-led-aux.off"
+
+rm -f "$RELOAD_FILE"
+
+wait_for_reload() {
+	local remaining="$1"
+	while [ "$remaining" -gt 0 ]; do
+		[ -e "$RELOAD_FILE" ] && { rm -f "$RELOAD_FILE"; return; }
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+}
+
+number_in_range() {
+	local value="$1" minimum="$2" maximum="$3"
+	case "$value" in *[!0-9]*|'') return 1 ;; esac
+	[ "${#value}" -le 6 ] || return 1
+	[ "$value" -ge "$minimum" ] && [ "$value" -le "$maximum" ]
+}
+
+bounded_number() {
+	local value="$1" fallback="$2" minimum="$3" maximum="$4"
+	number_in_range "$value" "$minimum" "$maximum" || value="$fallback"
+	echo "$value"
+}
+
+poll_interval() {
+	local value
+	config_get value main interval
+	case "$value" in *[!0-9]*|'') value="$(uci -q get luci.main.pollinterval)" ;; esac
+	bounded_number "$value" 5 1 60
+}
+
+valid_color() {
+	case "$1" in red|green|blue|yellow|purple|cyan|white|off) return 0 ;; esac
+	return 1
+}
+
+valid_front_color() {
+	case "$1" in blue|yellow|off) return 0 ;; esac
+	return 1
+}
+
+set_off() {
+	local path="$1"
+	[ -d "$path" ] || return
+	echo none >"$path/trigger" 2>/dev/null
+	echo 0 >"$path/brightness" 2>/dev/null
+}
+
+set_on() {
+	local path="$1"
+	[ -d "$path" ] || return
+	echo none >"$path/trigger" 2>/dev/null
+	echo 1 >"$path/brightness" 2>/dev/null
+}
+
+set_blink() {
+	local path="$1" delay_on="$2" delay_off="$3"
+	[ -d "$path" ] || return
+	echo timer >"$path/trigger" 2>/dev/null
+	echo "$delay_on" >"$path/delay_on" 2>/dev/null
+	echo "$delay_off" >"$path/delay_off" 2>/dev/null
+}
+
+set_netdev() {
+	local path="$1" device="$2"
+	[ -d "$path" ] || return
+	echo netdev >"$path/trigger" 2>/dev/null
+	echo "$device" >"$path/device_name" 2>/dev/null
+	echo 1 >"$path/link" 2>/dev/null
+	echo 1 >"$path/tx" 2>/dev/null
+	echo 1 >"$path/rx" 2>/dev/null
+}
+
+set_top_color() {
+	local color="$1" blink="$2" path
+	set_off "$TOP_RED"
+	set_off "$TOP_GREEN"
+	set_off "$TOP_BLUE"
+	[ "$color" = off ] && return
+	for path in \
+		$([ "$color" = red ] || [ "$color" = yellow ] || [ "$color" = purple ] || [ "$color" = white ] && echo "$TOP_RED") \
+		$([ "$color" = green ] || [ "$color" = yellow ] || [ "$color" = cyan ] || [ "$color" = white ] && echo "$TOP_GREEN") \
+		$([ "$color" = blue ] || [ "$color" = purple ] || [ "$color" = cyan ] || [ "$color" = white ] && echo "$TOP_BLUE"); do
+		[ "$blink" -eq 1 ] && set_blink "$path" "$top_blink_on" "$top_blink_off" || set_on "$path"
+	done
+}
+
+set_pair() {
+	local blue="$1" yellow="$2" mode="$3" color="$4" delay_on="$5" delay_off="$6" selected
+	set_off "$blue"
+	set_off "$yellow"
+	[ "$mode" = off ] || [ "$color" = off ] && return
+	if [ "$mode" = default ]; then
+		set_on "$blue"
+		return
+	fi
+	[ "$color" = yellow ] && selected="$yellow" || selected="$blue"
+	case "$mode" in
+		fixed) set_on "$selected" ;;
+		blink) set_blink "$selected" "$delay_on" "$delay_off" ;;
+	esac
+}
+
+set_network_activity() {
+	local selected="$NETWORK_BLUE"
+	[ "$network_led_color" = yellow ] && selected="$NETWORK_YELLOW"
+	set_off "$NETWORK_BLUE"
+	set_off "$NETWORK_YELLOW"
+	set_netdev "$selected" wan
+}
+
+set_aux_network_off() {
+	local path
+	for path in \
+		"/sys/class/leds/90000.mdio-1:00:green:lan" \
+		"/sys/class/leds/90000.mdio-1:01:green:lan" \
+		"/sys/class/leds/90000.mdio-1:02:green:lan" \
+		"/sys/class/leds/90000.mdio-1:03:green:lan" \
+		"/sys/class/leds/90000.mdio-1:18:green:wan" \
+		"$WIFI_ACTIVITY_LED"; do
+		set_off "$path"
+	done
+	touch "$AUX_OFF_FILE"
+}
+
+restore_aux_network_activity() {
+	[ -x /etc/init.d/led ] && /etc/init.d/led start >/dev/null 2>&1
+	[ -d "$WIFI_ACTIVITY_LED" ] && echo phy0tpt >"$WIFI_ACTIVITY_LED/trigger" 2>/dev/null
+	rm -f "$AUX_OFF_FILE"
+	last_top=""
+	last_system=""
+	last_network=""
+}
+
+apply_aux_network() {
+	local mode="$1"
+	if [ "$mode" = off ]; then
+		set_aux_network_off
+		last_aux_network=off
+	elif [ "$last_aux_network" != activity ] || [ -e "$AUX_OFF_FILE" ]; then
+		restore_aux_network_activity
+		last_aux_network=activity
+	fi
+}
+
+apply_top() {
+	local color="$1" blink="$2" force="${3:-0}" signature
+	signature="$color:$blink:$top_blink_on:$top_blink_off"
+	[ "$force" != 1 ] && [ "$signature" = "$last_top" ] && return
+	set_top_color "$color" "$blink"
+	last_top="$signature"
+}
+
+apply_system() {
+	local mode="$1" color="$2" force="${3:-0}" signature
+	signature="$mode:$color:$system_led_on:$system_led_off"
+	[ "$force" != 1 ] && [ "$signature" = "$last_system" ] && return
+	set_pair "$SYSTEM_BLUE" "$SYSTEM_YELLOW" "$mode" "$color" "$system_led_on" "$system_led_off"
+	last_system="$signature"
+}
+
+apply_network() {
+	local mode="$1" color="$2" force="${3:-0}" signature
+	signature="$mode:$color:$network_led_on:$network_led_off"
+	[ "$force" != 1 ] && [ "$signature" = "$last_network" ] && return
+	if [ "$mode" = netdev ]; then
+		set_network_activity
+	else
+		set_pair "$NETWORK_BLUE" "$NETWORK_YELLOW" "$mode" "$color" "$network_led_on" "$network_led_off"
+	fi
+	last_network="$signature"
+}
+
+read_temperature() {
+	local value maximum=0 sensor
+	for sensor in /sys/class/thermal/thermal_zone*/temp; do
+		[ -r "$sensor" ] || continue
+		value="$(cat "$sensor" 2>/dev/null)"
+		case "$value" in *[!0-9]*|'') continue ;; esac
+		[ "$value" -gt "$maximum" ] && maximum="$value"
+	done
+	[ "$maximum" -gt 0 ] && echo "$maximum"
+}
+
+evaluate_led_rule() {
+	local section="$1" operator threshold led_control led_color matched=0
+	[ "$rule_matched" -eq 1 ] && return
+	config_get threshold "$section" threshold
+	config_get operator "$section" operator ge
+	config_get_bool led_control "$section" led_control 0
+	config_get led_color "$section" led_color blue
+	case "$operator" in ge|le) ;; *) return ;; esac
+	number_in_range "$threshold" 0 120 || return
+	valid_color "$led_color" || led_color=blue
+	if [ -n "$temperature" ]; then
+		[ "$operator" = ge ] && [ "$temperature" -ge $((threshold * 1000)) ] && matched=1
+		[ "$operator" = le ] && [ "$temperature" -le $((threshold * 1000)) ] && matched=1
+	fi
+	if [ "$matched" -eq 1 ]; then
+		rule_matched=1
+		selected_led_control="$led_control"
+		selected_led_color="$led_color"
+	fi
+}
+
+select_temperature_led() {
+	rule_matched=0
+	selected_led_control=0
+	selected_led_color=blue
+	temperature="$(read_temperature)"
+	config_foreach evaluate_led_rule fan_rule
+}
+
+time_to_minutes() {
+	local value="$1" hour minute
+	case "$value" in [0-2][0-9]:[0-5][0-9]) ;; *) return 1 ;; esac
+	hour="${value%:*}"
+	minute="${value#*:}"
+	hour="${hour#0}"; minute="${minute#0}"
+	[ -n "$hour" ] || hour=0
+	[ -n "$minute" ] || minute=0
+	[ "$hour" -le 23 ] || return 1
+	echo $((hour * 60 + minute))
+}
+
+schedule_is_active() {
+	local start end now hour minute
+	[ "$schedule_enabled" -eq 1 ] || return 1
+	start="$(time_to_minutes "$schedule_start")" || return 1
+	end="$(time_to_minutes "$schedule_end")" || return 1
+	hour="$(date +%H)"; minute="$(date +%M)"
+	hour="${hour#0}"; minute="${minute#0}"
+	[ -n "$hour" ] || hour=0
+	[ -n "$minute" ] || minute=0
+	now=$((hour * 60 + minute))
+	[ "$start" -eq "$end" ] && return 0
+	if [ "$start" -lt "$end" ]; then
+		[ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
+	else
+		[ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+	fi
+}
+
+cycle_color() {
+	local index
+	index=$((($(date +%s) / top_cycle_interval) % 7))
+	case "$index" in
+		0) echo red ;; 1) echo green ;; 2) echo blue ;; 3) echo yellow ;;
+		4) echo purple ;; 5) echo cyan ;; *) echo white ;;
+	esac
+}
+
+network_reachable() {
+	case "$network_check_target" in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac
+	[ "${#network_check_target}" -le 253 ] || return 1
+	ping -c 1 -W 1 "$network_check_target" >/dev/null 2>&1
+}
+
+last_top=""
+last_system=""
+last_network=""
+[ -e "$AUX_OFF_FILE" ] && last_aux_network=off || last_aux_network=activity
+
+while :; do
+	config_load ax900-hardware
+	config_get_bool fan_enabled main fan_enabled 1
+	config_get fan_mode main fan_mode auto
+	config_get top_mode main top_mode fixed
+	config_get top_fixed_color main top_fixed_color blue
+	config_get_bool top_blink main top_blink 0
+	config_get top_blink_on main top_blink_on 500
+	config_get top_blink_off main top_blink_off 500
+	config_get top_cycle_interval main top_cycle_interval 3
+	config_get system_led_mode main system_led_mode default
+	config_get system_led_color main system_led_color blue
+	config_get system_led_on main system_led_on 500
+	config_get system_led_off main system_led_off 500
+	config_get network_led_mode main network_led_mode connectivity
+	config_get network_led_color main network_led_color yellow
+	config_get network_led_on main network_led_on 500
+	config_get network_led_off main network_led_off 500
+	config_get network_check_target main network_check_target 223.5.5.5
+	config_get network_online_color main network_online_color blue
+	config_get_bool network_online_blink main network_online_blink 0
+	config_get network_offline_color main network_offline_color yellow
+	config_get_bool network_offline_blink main network_offline_blink 0
+	config_get_bool schedule_enabled main schedule_enabled 0
+	config_get schedule_start main schedule_start 23:00
+	config_get schedule_end main schedule_end 07:00
+	config_get schedule_action main schedule_action off
+	config_get_bool schedule_top main schedule_top 1
+	config_get_bool schedule_system main schedule_system 1
+	config_get_bool schedule_network main schedule_network 1
+
+	case "$top_mode" in off|fixed|cycle) ;; *) top_mode=fixed ;; esac
+	valid_color "$top_fixed_color" || top_fixed_color=blue
+	valid_front_color "$system_led_color" || system_led_color=blue
+	valid_front_color "$network_led_color" || network_led_color=yellow
+	valid_front_color "$network_online_color" || network_online_color=blue
+	valid_front_color "$network_offline_color" || network_offline_color=yellow
+	case "$system_led_mode" in default|off|fixed|blink) ;; *) system_led_mode=default ;; esac
+	case "$network_led_mode" in netdev|connectivity|off|fixed|blink) ;; *) network_led_mode=connectivity ;; esac
+	case "$schedule_action" in on|off) ;; *) schedule_action=off ;; esac
+	top_blink_on="$(bounded_number "$top_blink_on" 500 100 60000)"
+	top_blink_off="$(bounded_number "$top_blink_off" 500 100 60000)"
+	system_led_on="$(bounded_number "$system_led_on" 500 100 60000)"
+	system_led_off="$(bounded_number "$system_led_off" 500 100 60000)"
+	network_led_on="$(bounded_number "$network_led_on" 500 100 60000)"
+	network_led_off="$(bounded_number "$network_led_off" 500 100 60000)"
+	top_cycle_interval="$(bounded_number "$top_cycle_interval" 3 1 60)"
+
+	scheduled=0
+	schedule_is_active && scheduled=1
+	if [ "$scheduled" -eq 1 ] && [ "$schedule_network" -eq 1 ] && [ "$schedule_action" = off ]; then
+		apply_aux_network off
+	else
+		apply_aux_network activity
+	fi
+	select_temperature_led
+
+	if [ "$scheduled" -eq 1 ] && [ "$schedule_top" -eq 1 ]; then
+		[ "$schedule_action" = off ] && apply_top off 0 1 || apply_top "$top_fixed_color" 0
+	elif [ "$fan_enabled" -eq 1 ] && [ "$fan_mode" = auto ] && [ "$selected_led_control" -eq 1 ]; then
+		apply_top "$selected_led_color" 0
+	else
+		case "$top_mode" in
+			off) apply_top off 0 ;;
+			fixed) apply_top "$top_fixed_color" "$top_blink" ;;
+			cycle) apply_top "$(cycle_color)" 0 ;;
+		esac
+	fi
+
+	if [ "$scheduled" -eq 1 ] && [ "$schedule_system" -eq 1 ]; then
+		[ "$schedule_action" = off ] && apply_system off blue 1 || apply_system fixed "$system_led_color"
+	else
+		apply_system "$system_led_mode" "$system_led_color"
+	fi
+
+	if [ "$scheduled" -eq 1 ] && [ "$schedule_network" -eq 1 ]; then
+		[ "$schedule_action" = off ] && apply_network off blue 1 || apply_network fixed "$network_led_color"
+	elif [ "$network_led_mode" = connectivity ]; then
+		if network_reachable; then
+			[ "$network_online_blink" -eq 1 ] && mode=blink || mode=fixed
+			apply_network "$mode" "$network_online_color"
+		else
+			[ "$network_offline_blink" -eq 1 ] && mode=blink || mode=fixed
+			apply_network "$mode" "$network_offline_color"
+		fi
+	else
+		apply_network "$network_led_mode" "$network_led_color"
+	fi
+	wait_for_reload "$(poll_interval)"
+done

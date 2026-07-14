@@ -1,0 +1,14 @@
+{
+  "packages": [
+    {
+      "name": "luci-app-lan-wake",
+      "url": "https://github.com/adminchenyu/LAN-Wake.git",
+      "revision": "893805ee2f57b4490cc38e0abfd1aa45f362a958",
+      "executables": [
+        "root/etc/uci-defaults/90_luci-app-lan-wake",
+        "root/usr/libexec/lan-wake-update-mac-vendors.sh",
+        "root/usr/libexec/rpcd/lan-wake"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,174 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+find_fan_pwm() {
+	for device in /sys/class/hwmon/hwmon*; do
+		[ -r "$device/name" ] || continue
+		case "$(cat "$device/name")" in
+			emc2301|emc2305) [ -w "$device/pwm1" ] && { echo "$device/pwm1"; return; } ;;
+		esac
+	done
+}
+
+read_temperature() {
+	local value maximum=0
+	for sensor in /sys/class/thermal/thermal_zone*/temp; do
+		[ -r "$sensor" ] || continue
+		value="$(cat "$sensor" 2>/dev/null)"
+		case "$value" in *[!0-9]*|'') continue ;; esac
+		[ "$value" -gt "$maximum" ] && maximum="$value"
+	done
+	[ "$maximum" -gt 0 ] && echo "$maximum"
+}
+
+percent_to_pwm() {
+	echo $((($1 * 255 + 50) / 100))
+}
+
+number_in_range() {
+	local value="$1" minimum="$2" maximum="$3"
+	case "$value" in *[!0-9]*|'') return 1 ;; esac
+	[ "${#value}" -le 6 ] || return 1
+	[ "$value" -ge "$minimum" ] && [ "$value" -le "$maximum" ]
+}
+
+bounded_number() {
+	local value="$1" fallback="$2" minimum="$3" maximum="$4"
+	number_in_range "$value" "$minimum" "$maximum" || value="$fallback"
+	echo "$value"
+}
+
+poll_interval() {
+	local value
+	config_get value main interval
+	case "$value" in *[!0-9]*|'') value="$(uci -q get luci.main.pollinterval)" ;; esac
+	bounded_number "$value" 5 1 60
+}
+
+wait_for_reload() {
+	local remaining="$1"
+	while [ "$remaining" -gt 0 ]; do
+		[ -e "$reload_file" ] && { rm -f "$reload_file"; return; }
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+}
+
+evaluate_rule() {
+	local section="$1" operator threshold power matched=0
+	config_get threshold "$section" threshold
+	config_get power "$section" power
+	config_get operator "$section" operator ge
+	case "$operator" in ge|le) ;; *) return ;; esac
+	number_in_range "$threshold" 0 120 || return
+	number_in_range "$power" 0 100 || return
+
+	rule_count=$((rule_count + 1))
+	[ "$power" -gt "$safety_power" ] && safety_power="$power"
+	[ "$rule_matched" -eq 1 ] && return
+	if [ -n "$temperature" ]; then
+		[ "$operator" = ge ] && [ "$temperature" -ge $((threshold * 1000)) ] && matched=1
+		[ "$operator" = le ] && [ "$temperature" -le $((threshold * 1000)) ] && matched=1
+	fi
+	if [ "$matched" -eq 1 ]; then
+		rule_matched=1
+		selected_power="$power"
+	fi
+}
+
+automatic_power() {
+	rule_count=0
+	safety_power=0
+	rule_matched=0
+	selected_power=0
+	config_foreach evaluate_rule fan_rule
+
+	if [ "$rule_count" -eq 0 ]; then
+		config_get idle_temp main idle_temp 50
+		config_get idle_percent main idle_percent 0
+		config_get low_temp main low_temp 50
+		config_get low_percent main low_percent 25
+		config_get mid_temp main mid_temp 60
+		config_get mid_percent main mid_percent 50
+		config_get high_temp main high_temp 70
+		config_get high_percent main high_percent 100
+		idle_temp="$(bounded_number "$idle_temp" 50 0 120)"
+		idle_percent="$(bounded_number "$idle_percent" 0 0 100)"
+		low_temp="$(bounded_number "$low_temp" 50 0 120)"
+		mid_temp="$(bounded_number "$mid_temp" 60 0 120)"
+		high_temp="$(bounded_number "$high_temp" 70 0 120)"
+		low_percent="$(bounded_number "$low_percent" 25 0 100)"
+		mid_percent="$(bounded_number "$mid_percent" 50 0 100)"
+		high_percent="$(bounded_number "$high_percent" 100 0 100)"
+		if [ -z "$temperature" ]; then
+			power="$high_percent"
+		elif [ "$temperature" -ge $((high_temp * 1000)) ]; then
+			power="$high_percent"
+		elif [ "$temperature" -ge $((mid_temp * 1000)) ]; then
+			power="$mid_percent"
+		elif [ "$temperature" -ge $((low_temp * 1000)) ]; then
+			power="$low_percent"
+		elif [ "$temperature" -le $((idle_temp * 1000)) ]; then
+			power="$idle_percent"
+		else
+			power="$last_automatic_power"
+		fi
+	elif [ -z "$temperature" ]; then
+		power="$safety_power"
+	elif [ "$rule_matched" -eq 1 ]; then
+		power="$selected_power"
+	else
+		power="$last_automatic_power"
+	fi
+	last_automatic_power="$power"
+}
+
+fan_pwm=""
+fan_active=0
+fan_missing_logged=0
+high_speed=255
+last_automatic_power=100
+reload_file="/var/run/ax900-hardware.reload"
+rm -f "$reload_file"
+
+fail_safe() {
+	[ "$fan_active" -eq 1 ] && [ -n "$fan_pwm" ] && \
+		echo "$high_speed" >"$fan_pwm" 2>/dev/null || :
+}
+
+trap fail_safe EXIT
+trap 'exit 0' INT TERM
+
+while :; do
+	config_load ax900-hardware
+	config_get_bool fan_enabled main fan_enabled 1
+	config_get fan_mode main fan_mode auto
+	config_get manual_percent main manual_percent 50
+	case "$fan_mode" in auto|manual) ;; *) fan_mode=auto ;; esac
+	manual_percent="$(bounded_number "$manual_percent" 50 0 100)"
+
+	if [ "$fan_enabled" -eq 1 ]; then
+		[ -n "$fan_pwm" ] || fan_pwm="$(find_fan_pwm)"
+		fan_active=1
+		if [ -z "$fan_pwm" ] && [ "$fan_missing_logged" -eq 0 ]; then
+			logger -t ax900-hardware "EMC2301/EMC2305 PWM control node not found"
+			fan_missing_logged=1
+		fi
+	else
+		fan_active=0
+	fi
+
+	if [ "$fan_active" -eq 1 ] && [ -n "$fan_pwm" ]; then
+		fan_missing_logged=0
+		if [ "$fan_mode" = manual ]; then
+			power="$manual_percent"
+		else
+			temperature="$(read_temperature)"
+			automatic_power
+		fi
+		speed="$(percent_to_pwm "$power")"
+		echo "$speed" >"$fan_pwm" 2>/dev/null || fan_pwm=""
+	fi
+	wait_for_reload "$(poll_interval)"
+done

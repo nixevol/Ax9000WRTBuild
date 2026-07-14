@@ -1,0 +1,13 @@
+services:
+  builder:
+    image: openwrt-local-builder:25.12
+    build: .
+    environment:
+      PROFILE: ax9000
+    volumes:
+      - .:/workspace
+      - openwrt-build-work:/work
+
+volumes:
+  openwrt-build-work:
+    name: openwrt-build-work

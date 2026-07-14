@@ -1,0 +1,18 @@
+#!/bin/sh
+
+uci -q set system.@system[0].zonename='Asia/Shanghai'
+uci -q set system.@system[0].timezone='CST-8'
+uci -q commit system
+
+uci -q set luci.main.mediaurlbase='/luci-static/argon'
+uci -q commit luci
+
+if [ -x /etc/init.d/uhttpd ]; then
+	/etc/init.d/uhttpd disable
+fi
+
+if [ -x /etc/init.d/nginx ]; then
+	/etc/init.d/nginx enable
+fi
+
+exit 0

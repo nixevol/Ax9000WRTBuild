@@ -1,0 +1,30 @@
+# Local scratch space
+work/
+$dest/
+outputs/
+aidocs/
+tests/
+.runtime/
+
+# Dependencies and package-manager output
+node_modules/
+.venv/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Build and Python cache output
+web/frontend/dist/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Environment and OS files
+.env
+.env.*
+!.env.example
+Thumbs.db
+Desktop.ini
