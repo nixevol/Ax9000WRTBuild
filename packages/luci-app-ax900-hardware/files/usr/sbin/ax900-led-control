@@ -1,0 +1,225 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+TOP_RED="/sys/class/leds/red:"
+TOP_GREEN="/sys/class/leds/green:"
+TOP_BLUE="/sys/class/leds/blue:_2"
+SYSTEM_BLUE="/sys/class/leds/blue:"
+SYSTEM_YELLOW="/sys/class/leds/yellow:"
+NETWORK_BLUE="/sys/class/leds/blue:_1"
+NETWORK_YELLOW="/sys/class/leds/yellow:_1"
+RELOAD_FILE="/var/run/ax900-led.reload"
+
+rm -f "$RELOAD_FILE"
+
+wait_for_reload() {
+	local remaining="$1"
+	while [ "$remaining" -gt 0 ]; do
+		[ -e "$RELOAD_FILE" ] && return 0
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+	return 1
+}
+
+reload_config() {
+	rm -f "$RELOAD_FILE"
+	exec /usr/sbin/ax900-led-control
+}
+
+valid_color() {
+	case "$1" in red|green|blue|yellow|purple|cyan|white|off) return 0 ;; esac
+	return 1
+}
+
+valid_front_color() {
+	case "$1" in blue|yellow) return 0 ;; esac
+	return 1
+}
+
+set_off() {
+	local path="$1"
+	[ -d "$path" ] || return
+	echo none >"$path/trigger" 2>/dev/null
+	echo 0 >"$path/brightness" 2>/dev/null
+}
+
+set_on() {
+	local path="$1"
+	[ -d "$path" ] || return
+	echo none >"$path/trigger" 2>/dev/null
+	echo 1 >"$path/brightness" 2>/dev/null
+}
+
+set_blink() {
+	local path="$1" delay_on="$2" delay_off="$3"
+	[ -d "$path" ] || return
+	echo timer >"$path/trigger" 2>/dev/null
+	echo "$delay_on" >"$path/delay_on" 2>/dev/null
+	echo "$delay_off" >"$path/delay_off" 2>/dev/null
+}
+
+set_top_color() {
+	local color="$1" blink="$2" path
+	set_off "$TOP_RED"
+	set_off "$TOP_GREEN"
+	set_off "$TOP_BLUE"
+	[ "$color" = off ] && return
+	for path in \
+		$([ "$color" = red ] || [ "$color" = yellow ] || [ "$color" = purple ] || [ "$color" = white ] && echo "$TOP_RED") \
+		$([ "$color" = green ] || [ "$color" = yellow ] || [ "$color" = cyan ] || [ "$color" = white ] && echo "$TOP_GREEN") \
+		$([ "$color" = blue ] || [ "$color" = purple ] || [ "$color" = cyan ] || [ "$color" = white ] && echo "$TOP_BLUE"); do
+		[ "$blink" -eq 1 ] && set_blink "$path" "$top_blink_on" "$top_blink_off" || set_on "$path"
+	done
+}
+
+set_pair() {
+	local blue="$1" yellow="$2" mode="$3" color="$4" delay_on="$5" delay_off="$6" selected
+	set_off "$blue"
+	set_off "$yellow"
+	[ "$mode" = off ] && return
+	if [ "$mode" = default ]; then
+		set_on "$blue"
+		return
+	fi
+	[ "$color" = yellow ] && selected="$yellow" || selected="$blue"
+	case "$mode" in
+		fixed) set_on "$selected" ;;
+		blink) set_blink "$selected" "$delay_on" "$delay_off" ;;
+	esac
+}
+
+set_network_activity() {
+	local selected="$NETWORK_BLUE"
+	[ "$network_led_color" = yellow ] && selected="$NETWORK_YELLOW"
+	set_off "$NETWORK_BLUE"
+	set_off "$NETWORK_YELLOW"
+	[ -d "$selected" ] || return
+	echo netdev >"$selected/trigger" 2>/dev/null
+	echo wan >"$selected/device_name" 2>/dev/null
+	echo 1 >"$selected/link" 2>/dev/null
+	echo 1 >"$selected/tx" 2>/dev/null
+	echo 1 >"$selected/rx" 2>/dev/null
+}
+
+read_temperature() {
+	local value maximum=0 sensor
+	for sensor in /sys/class/thermal/thermal_zone*/temp; do
+		[ -r "$sensor" ] || continue
+		value="$(cat "$sensor" 2>/dev/null)"
+		case "$value" in *[!0-9]*|'') continue ;; esac
+		[ "$value" -gt "$maximum" ] && maximum="$value"
+	done
+	[ "$maximum" -gt 0 ] && echo "$maximum"
+}
+
+config_load ax900-hardware
+config_get top_mode main top_mode
+if [ -z "$top_mode" ]; then
+	config_get_bool led_enabled main led_enabled 1
+	config_get top_fixed_color main led_color blue
+	[ "$led_enabled" -eq 1 ] && top_mode=fixed || top_mode=off
+fi
+config_get top_fixed_color main top_fixed_color blue
+config_get top_low_color main top_low_color blue
+config_get_bool top_low_blink main top_low_blink 0
+config_get top_mid_color main top_mid_color yellow
+config_get_bool top_mid_blink main top_mid_blink 0
+config_get top_high_color main top_high_color red
+config_get_bool top_high_blink main top_high_blink 0
+config_get_bool top_blink main top_blink 0
+config_get top_blink_on main top_blink_on 500
+config_get top_blink_off main top_blink_off 500
+config_get top_cycle_interval main top_cycle_interval 3
+config_get mid_temp main mid_temp 50
+config_get high_temp main high_temp 65
+config_get interval main interval 5
+config_get system_led_mode main system_led_mode default
+config_get system_led_color main system_led_color blue
+config_get system_led_on main system_led_on 500
+config_get system_led_off main system_led_off 500
+config_get network_led_mode main network_led_mode netdev
+config_get network_led_color main network_led_color yellow
+config_get network_led_on main network_led_on 500
+config_get network_led_off main network_led_off 500
+
+case "$top_mode" in off|fixed|temperature|cycle) ;; *) top_mode=temperature ;; esac
+for color_var in top_fixed_color top_low_color top_mid_color top_high_color; do
+	eval "color=\${$color_var}"
+	valid_color "$color" || eval "$color_var=blue"
+done
+valid_front_color "$system_led_color" || system_led_color=blue
+valid_front_color "$network_led_color" || network_led_color=yellow
+case "$system_led_mode" in default|off|fixed|blink) ;; *) system_led_mode=default ;; esac
+case "$network_led_mode" in netdev|off|fixed|blink) ;; *) network_led_mode=netdev ;; esac
+for number_var in top_blink_on top_blink_off system_led_on system_led_off network_led_on network_led_off; do
+	eval "number=\${$number_var}"
+	case "$number" in *[!0-9]*|'') eval "$number_var=500" ;; esac
+	eval "number=\${$number_var}"
+	[ "$number" -ge 100 ] || eval "$number_var=100"
+	[ "$number" -le 60000 ] || eval "$number_var=60000"
+done
+for number_var in top_cycle_interval interval; do
+	eval "number=\${$number_var}"
+	case "$number" in *[!0-9]*|'') eval "$number_var=5" ;; esac
+	eval "number=\${$number_var}"
+	[ "$number" -ge 1 ] || eval "$number_var=1"
+	[ "$number" -le 60 ] || eval "$number_var=60"
+done
+case "$mid_temp:$high_temp" in
+	*[!0-9:]*) mid_temp=50; high_temp=65 ;;
+esac
+[ "$mid_temp" -lt "$high_temp" ] || { mid_temp=50; high_temp=65; }
+
+set_pair "$SYSTEM_BLUE" "$SYSTEM_YELLOW" "$system_led_mode" "$system_led_color" "$system_led_on" "$system_led_off"
+if [ "$network_led_mode" = netdev ]; then
+	set_network_activity
+else
+	set_pair "$NETWORK_BLUE" "$NETWORK_YELLOW" "$network_led_mode" "$network_led_color" "$network_led_on" "$network_led_off"
+fi
+
+case "$top_mode" in
+	off)
+		set_top_color off 0
+		while :; do wait_for_reload 3600 && reload_config; done
+	;;
+	fixed)
+		set_top_color "$top_fixed_color" "$top_blink"
+		while :; do wait_for_reload 3600 && reload_config; done
+	;;
+	temperature)
+		last_color=""
+		last_blink=""
+		while :; do
+			temperature="$(read_temperature)"
+			if [ -z "$temperature" ]; then
+				color="$top_high_color"
+				blink="$top_high_blink"
+			elif [ "$temperature" -ge $((high_temp * 1000)) ]; then
+				color="$top_high_color"
+				blink="$top_high_blink"
+			elif [ "$temperature" -ge $((mid_temp * 1000)) ]; then
+				color="$top_mid_color"
+				blink="$top_mid_blink"
+			else
+				color="$top_low_color"
+				blink="$top_low_blink"
+			fi
+			if [ "$color" != "$last_color" ] || [ "$blink" != "$last_blink" ]; then
+				set_top_color "$color" "$blink"
+				last_color="$color"
+				last_blink="$blink"
+			fi
+			wait_for_reload "$interval" && reload_config
+		done
+	;;
+	cycle)
+		while :; do
+			for color in red green blue yellow purple cyan white; do
+				set_top_color "$color" 0
+				wait_for_reload "$top_cycle_interval" && reload_config
+			done
+		done
+	;;
+esac

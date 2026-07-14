@@ -1,0 +1,10 @@
+*.sh text eol=lf
+*.env text eol=lf
+*.patch text eol=lf
+Dockerfile text eol=lf
+profiles/*/files/etc/uci-defaults/* text eol=lf
+packages/*/files/etc/init.d/* text eol=lf
+packages/*/files/etc/uci-defaults/* text eol=lf
+packages/*/files/usr/sbin/* text eol=lf
+packages/*/files/usr/libexec/rpcd/* text eol=lf
+*.po text eol=lf

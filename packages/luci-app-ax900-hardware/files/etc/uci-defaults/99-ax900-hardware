@@ -1,0 +1,5 @@
+#!/bin/sh
+
+/etc/init.d/ax900-hardware enable
+/etc/init.d/ax900-led enable
+exit 0

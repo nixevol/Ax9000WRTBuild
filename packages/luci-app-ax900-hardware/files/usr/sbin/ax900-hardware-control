@@ -1,0 +1,118 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+find_fan_pwm() {
+	for device in /sys/class/hwmon/hwmon*; do
+		[ -r "$device/name" ] || continue
+		case "$(cat "$device/name")" in
+			emc2301|emc2305) [ -w "$device/pwm1" ] && { echo "$device/pwm1"; return; } ;;
+		esac
+	done
+}
+
+read_temperature() {
+	local value maximum=0
+	for sensor in /sys/class/thermal/thermal_zone*/temp; do
+		[ -r "$sensor" ] || continue
+		value="$(cat "$sensor" 2>/dev/null)"
+		case "$value" in *[!0-9]*|'') continue ;; esac
+		[ "$value" -gt "$maximum" ] && maximum="$value"
+	done
+	[ "$maximum" -gt 0 ] && echo "$maximum"
+}
+
+pwm_to_percent() {
+	local value="$1"
+	case "$value" in *[!0-9]*|'') value=0 ;; esac
+	[ "$value" -le 255 ] || value=255
+	echo $(((value * 100 + 127) / 255))
+}
+
+percent_to_pwm() {
+	echo $((($1 * 255 + 50) / 100))
+}
+
+wait_for_reload() {
+	local remaining="$1"
+	while [ "$remaining" -gt 0 ]; do
+		[ -e "$reload_file" ] && { rm -f "$reload_file"; return; }
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+}
+
+fan_pwm=""
+fan_active=0
+fan_missing_logged=0
+high_speed=255
+reload_file="/var/run/ax900-hardware.reload"
+rm -f "$reload_file"
+trap '[ "$fan_active" -eq 1 ] && [ -n "$fan_pwm" ] && echo "$high_speed" >"$fan_pwm" 2>/dev/null' EXIT INT TERM
+
+while :; do
+	config_load ax900-hardware
+	config_get_bool fan_enabled main fan_enabled 1
+	config_get fan_mode main fan_mode auto
+	config_get manual_percent main manual_percent 50
+	config_get low_temp main low_temp 40
+	config_get low_percent main low_percent
+	config_get mid_temp main mid_temp 50
+	config_get mid_percent main mid_percent
+	config_get high_temp main high_temp 65
+	config_get high_percent main high_percent
+	config_get interval main interval 5
+	if [ -z "$low_percent" ] || [ -z "$mid_percent" ] || [ -z "$high_percent" ]; then
+		config_get low_speed main low_speed 0
+		config_get mid_speed main mid_speed 128
+		config_get high_speed main high_speed 255
+		low_percent="$(pwm_to_percent "$low_speed")"
+		mid_percent="$(pwm_to_percent "$mid_speed")"
+		high_percent="$(pwm_to_percent "$high_speed")"
+	fi
+	case "$fan_mode" in auto|manual) ;; *) fan_mode=auto ;; esac
+	case "$manual_percent" in *[!0-9]*|'') manual_percent=50 ;; esac
+	[ "$manual_percent" -le 100 ] || manual_percent=100
+	case "$low_temp:$mid_temp:$high_temp:$low_percent:$mid_percent:$high_percent" in
+		*[!0-9:]*) low_temp=40; mid_temp=50; high_temp=65; low_percent=0; mid_percent=50; high_percent=100 ;;
+	esac
+	if [ "$low_temp" -ge "$mid_temp" ] || [ "$mid_temp" -ge "$high_temp" ]; then
+		low_temp=40; mid_temp=50; high_temp=65
+	fi
+	if [ "$low_percent" -gt "$mid_percent" ] || [ "$mid_percent" -gt "$high_percent" ] || [ "$high_percent" -gt 100 ]; then
+		low_percent=0; mid_percent=50; high_percent=100
+	fi
+
+	if [ "$fan_enabled" -eq 1 ]; then
+		[ -n "$fan_pwm" ] || fan_pwm="$(find_fan_pwm)"
+		fan_active=1
+		if [ -z "$fan_pwm" ] && [ "$fan_missing_logged" -eq 0 ]; then
+			logger -t ax900-hardware "EMC2301/EMC2305 PWM control node not found"
+			fan_missing_logged=1
+		fi
+	else
+		fan_active=0
+	fi
+	if [ "$fan_active" -eq 1 ] && [ -n "$fan_pwm" ]; then
+		fan_missing_logged=0
+		if [ "$fan_mode" = manual ]; then
+			power="$manual_percent"
+		else
+			temperature="$(read_temperature)"
+			if [ -z "$temperature" ]; then
+				power="$high_percent"
+			elif [ "$temperature" -ge $((high_temp * 1000)) ]; then
+				power="$high_percent"
+			elif [ "$temperature" -ge $((mid_temp * 1000)) ]; then
+				power="$mid_percent"
+			else
+				power="$low_percent"
+			fi
+		fi
+		speed="$(percent_to_pwm "$power")"
+		echo "$speed" >"$fan_pwm" 2>/dev/null || fan_pwm=""
+	fi
+	case "$interval" in *[!0-9]*|'') interval=5 ;; esac
+	[ "$interval" -ge 2 ] || interval=2
+	wait_for_reload "$interval"
+done

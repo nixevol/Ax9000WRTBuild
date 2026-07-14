@@ -1,0 +1,8 @@
+{
+  "admin/system/ax900-hardware": {
+    "title": "Fan & LED",
+    "order": 85,
+    "action": { "type": "view", "path": "ax900-hardware/settings" },
+    "depends": { "acl": [ "luci-app-ax900-hardware" ] }
+  }
+}

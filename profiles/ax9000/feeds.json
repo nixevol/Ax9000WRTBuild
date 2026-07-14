@@ -1,0 +1,76 @@
+{
+  "feeds": [
+    {
+      "name": "video",
+      "label": "OpenWrt Video",
+      "url": "https://github.com/openwrt/video.git",
+      "branch": "openwrt-25.12",
+      "kind": "official",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "packages",
+      "label": "OpenWrt Packages",
+      "url": "https://github.com/openwrt/packages.git",
+      "branch": "openwrt-25.12",
+      "kind": "official",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "luci",
+      "label": "OpenWrt LuCI",
+      "url": "https://github.com/openwrt/luci.git",
+      "branch": "openwrt-25.12",
+      "kind": "official",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "routing",
+      "label": "OpenWrt Routing",
+      "url": "https://github.com/openwrt/routing.git",
+      "branch": "openwrt-25.12",
+      "kind": "official",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "telephony",
+      "label": "OpenWrt Telephony",
+      "url": "https://github.com/openwrt/telephony.git",
+      "branch": "openwrt-25.12",
+      "kind": "official",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "nss_packages",
+      "label": "Qosmio NSS Packages",
+      "url": "https://github.com/qosmio/nss-packages.git",
+      "branch": "NSS-12.5-K6.x",
+      "kind": "hardware",
+      "builtin": true,
+      "enabled": true
+    },
+    {
+      "name": "sqm_scripts_nss",
+      "label": "Qosmio NSS SQM",
+      "url": "https://github.com/qosmio/sqm-scripts-nss.git",
+      "branch": "main",
+      "kind": "hardware",
+      "builtin": true,
+      "enabled": false
+    },
+    {
+      "name": "kiddin9",
+      "label": "Kiddin9 扩展包",
+      "url": "https://github.com/kiddin9/op-packages.git",
+      "branch": "main",
+      "kind": "community",
+      "builtin": true,
+      "enabled": true
+    }
+  ]
+}

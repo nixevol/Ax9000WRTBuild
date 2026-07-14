@@ -1,0 +1,11 @@
+.git
+.runtime
+.venv
+$dest
+node_modules
+out
+outputs
+work
+web/frontend/dist
+__pycache__
+*.log

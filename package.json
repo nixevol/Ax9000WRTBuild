@@ -1,0 +1,25 @@
+{
+  "name": "openwrt-ax9000-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api:dev": "python -m uvicorn web.server.main:app --host 0.0.0.0 --port 9001 --reload",
+    "api:serve": "python -m uvicorn web.server.main:app --host 0.0.0.0 --port 9001",
+    "web:dev": "vite --config web/frontend/vite.config.ts --host 0.0.0.0",
+    "web:build": "vite build --config web/frontend/vite.config.ts",
+    "web:preview": "npm run web:build && vite preview --config web/frontend/vite.config.ts --host 0.0.0.0",
+    "typecheck": "vue-tsc --noEmit -p web/frontend/tsconfig.json"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "lucide-vue-next": "^0.468.0",
+    "naive-ui": "^2.40.4",
+    "vite": "^6.0.7",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vue-tsc": "^2.2.0"
+  }
+}

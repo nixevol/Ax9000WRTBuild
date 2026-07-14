@@ -1,0 +1,36 @@
+{
+  "title": "Xiaomi AX9000",
+  "profileId": "xiaomi_ax9000",
+  "supportedDevices": [
+    "xiaomi,ax9000"
+  ],
+  "openwrtTarget": "qualcommax/ipq807x",
+  "bootLayout": "large-rootfs",
+  "rootfsPartition": "rootfs",
+  "rootfsSize": "当前 AX9000 MIBIB 中为 232 MiB",
+  "upstreamReference": {
+    "source": "Qosmio openwrt-ipq 25.12-nss",
+    "sourceUrl": "https://github.com/qosmio/openwrt-ipq",
+    "imageTypes": [
+      "sysupgrade",
+      "factory",
+      "kernel",
+      "initramfs-factory.ubi"
+    ],
+    "devicePackages": [
+      "ipq-wifi-xiaomi_ax9000",
+      "kmod-ath11k-pci",
+      "ath11k-firmware-qcn9074",
+      "kmod-ath10k",
+      "ath10k-firmware-qca9887"
+    ],
+    "fileSizeLimits": {
+      "kernel": 58720256
+    }
+  },
+  "notes": [
+    "Qosmio AX9000 profile 提供 sysupgrade、factory、kernel 和 initramfs-factory 镜像。",
+    "构建器将 Qosmio 的双 UBI 布局修补为单个 232 MiB rootfs，以匹配当前 AX9000 大分区布局。",
+    "固件保留完整 NSS 设备树、驱动和固件，LAN1 至 LAN4 使用 QSGMII，WAN 使用 SGMII。"
+  ]
+}
