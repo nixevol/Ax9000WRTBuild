@@ -15,6 +15,8 @@ client-only:
 - Supports validated TOML/INI raw configuration editing and previews the
   generated runtime INI while page configuration is active.
 - Shows runtime state and bounded logs on one page.
+- Clears only frpc log history and configured frpc log files without clearing
+  the shared OpenWrt system log.
 - Uploads any named AArch64 frpc binary into the fixed `/usr/bin/frpc` path,
   with automatic backup and restore support.
 - Enables boot startup when the service is started manually and disables boot
@@ -34,6 +36,6 @@ make package/luci-app-frpc/compile V=s
 Generated package names are expected to look like:
 
 ```text
-luci-app-frpc-2.0-r7.apk
-luci-i18n-frpc-zh-cn-2.0-r7.apk
+luci-app-frpc-2.0-r10.apk
+luci-i18n-frpc-zh-cn-2.0-r10.apk
 ```

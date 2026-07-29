@@ -18,7 +18,7 @@
 		"write": {
 			"cgi-io": [ "upload" ],
 			"ubus": {
-				"frpc-manager": [ "action", "save_raw", "use_uci", "install_core", "restore_core" ]
+				"frpc-manager": [ "action", "clear_logs", "save_raw", "use_uci", "install_core", "restore_core" ]
 			},
 			"uci": [ "frpc" ]
 		}

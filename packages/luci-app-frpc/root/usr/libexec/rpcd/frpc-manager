@@ -8,6 +8,7 @@ UPLOAD=/tmp/frpc-core-upload
 RAW_DIR=/etc/frp
 INIT=/etc/init.d/frpc
 LAUNCHER=/usr/libexec/frpc-launcher
+LOG_CLEAR_MARKER=/tmp/frpc-log-clear.timestamp
 
 reply_error() {
 	json_init
@@ -101,11 +102,48 @@ status_call() {
 }
 
 logs_call() {
-	local content
-	content="$(logread -e frpc 2>/dev/null | tail -n 120)"
+	local content cutoff=0
+	[ -s "$LOG_CLEAR_MARKER" ] && cutoff="$(cat "$LOG_CLEAR_MARKER" 2>/dev/null)"
+	content="$(logread -t -e frpc 2>/dev/null | awk -v cutoff="$cutoff" '
+		match($0, /\[[0-9][0-9]*\.[0-9][0-9]*\]/) {
+			if ($0 !~ / (frpc|frpc-launcher)\[[0-9][0-9]*\]:/)
+				next
+			stamp = substr($0, RSTART + 1, RLENGTH - 2)
+			if (stamp + 0 > cutoff) {
+				print substr($0, 1, RSTART - 1) substr($0, RSTART + RLENGTH + 1)
+			}
+		}
+	' | tail -n 120)"
 	json_init
 	json_add_boolean success 1
 	json_add_string logs "$content"
+	json_dump
+}
+
+clear_logs_call() {
+	local log_file removed=0 rotated
+	log_file="$(uci -q get frpc.common.log_file)"
+	case "$log_file" in
+		""|console|/dev/stdout|/dev/stderr) ;;
+		/var/log/*|/tmp/*|/data/*|/opt/*)
+			[ ! -L "$log_file" ] || { reply_error "Refusing to clear a symbolic link"; return; }
+			if [ -f "$log_file" ]; then
+				: > "$log_file" || { reply_error "Unable to clear the frpc log file"; return; }
+				removed=$((removed + 1))
+			fi
+			for rotated in "$log_file".*; do
+				[ -f "$rotated" ] || continue
+				rm -f "$rotated" || { reply_error "Unable to remove an old frpc log file"; return; }
+				removed=$((removed + 1))
+			done
+		;;
+		*) reply_error "The frpc log file is outside an allowed log directory"; return ;;
+	esac
+
+	printf '%s.999999\n' "$(date +%s)" > "$LOG_CLEAR_MARKER" || { reply_error "Unable to reset the frpc log view"; return; }
+	json_init
+	json_add_boolean success 1
+	json_add_int files_removed "$removed"
 	json_dump
 }
 
@@ -306,10 +344,11 @@ restore_core_call() {
 
 case "$1:$2" in
 	list:)
-		echo '{"status":{},"logs":{},"action":{"action":"String"},"read_raw":{"format":"String"},"save_raw":{"format":"String","content":"String"},"use_uci":{},"install_core":{},"restore_core":{}}'
+		echo '{"status":{},"logs":{},"clear_logs":{},"action":{"action":"String"},"read_raw":{"format":"String"},"save_raw":{"format":"String","content":"String"},"use_uci":{},"install_core":{},"restore_core":{}}'
 	;;
 	call:status) status_call ;;
 	call:logs) logs_call ;;
+	call:clear_logs) clear_logs_call ;;
 	call:action) action_call ;;
 	call:read_raw) read_raw_call ;;
 	call:save_raw) save_raw_call ;;

@@ -762,3 +762,18 @@ msgstr "传输配置"
 
 msgid "Web management"
 msgstr "管理 WEB"
+
+msgid "Clear frpc logs"
+msgstr "清空 frpc 日志"
+
+msgid "Clear old frpc log entries and configured frpc log files? Other system logs will not be affected."
+msgstr "确定清空旧的 frpc 日志记录和已配置的 frpc 日志文件吗？其他系统日志不会受到影响。"
+
+msgid "Clear logs"
+msgstr "清空日志"
+
+msgid "frpc logs cleared."
+msgstr "frpc 日志已清空。"
+
+msgid "Logs"
+msgstr "日志"

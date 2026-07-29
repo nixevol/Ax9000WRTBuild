@@ -21,6 +21,12 @@ const callManagerLogs = rpc.declare({
 	expect: { '': {} }
 });
 
+const callClearLogs = rpc.declare({
+	object: 'frpc-manager',
+	method: 'clear_logs',
+	expect: { '': {} }
+});
+
 const callManagerAction = rpc.declare({
 	object: 'frpc-manager',
 	method: 'action',
@@ -69,6 +75,8 @@ const pageStyle = [
 	'.frpc-state-dot.running { background:#2da44e; }',
 	'.frpc-state-dot.stopped { background:#cf222e; }',
 	'.frpc-log { box-sizing:border-box; height:18rem; max-height:18rem; overflow:auto; margin:0; padding:.8rem; border:1px solid var(--border-color-medium, #d8dee4); border-radius:4px; background:var(--background-color-low, #f6f8fa); color:var(--text-color-high, #24292f); white-space:pre-wrap; word-break:break-word; font:12px/1.55 monospace; }',
+	'.frpc-log-toolbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:.25rem 0 .65rem; }',
+	'.frpc-log-toolbar h3 { margin:0; font-size:1rem; }',
 	'.frpc-editor { box-sizing:border-box; width:100%; min-height:25rem; max-height:25rem; resize:vertical; font:12px/1.55 monospace; }',
 	'.frpc-panel-toolbar { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin:.5rem 0 1rem; }',
 	'.frpc-panel-toolbar select { min-width:8rem; }',
@@ -314,6 +322,37 @@ function handleServiceToggle(event) {
 	});
 }
 
+function handleClearLogs(event) {
+	event.preventDefault();
+	ui.showModal(_('Clear frpc logs'), [
+		E('p', {}, _('Clear old frpc log entries and configured frpc log files? Other system logs will not be affected.')),
+		E('div', { class: 'right' }, [
+			E('button', {
+				type: 'button',
+				class: 'cbi-button',
+				click: function() { ui.hideModal(); }
+			}, _('Cancel')),
+			' ',
+			E('button', {
+				type: 'button',
+				class: 'cbi-button cbi-button-negative',
+				click: function(clearEvent) {
+					let button = clearEvent.currentTarget;
+					button.disabled = true;
+					return callClearLogs().then(ensureSuccess).then(function() {
+						ui.hideModal();
+						ui.addNotification(null, E('p', {}, _('frpc logs cleared.')));
+						return refreshRuntime();
+					}).catch(function(error) {
+						button.disabled = false;
+						notifyError(error);
+					});
+				}
+			}, _('Clear logs'))
+		])
+	]);
+}
+
 function renderRuntimePanel() {
 	let panel = E('div', {}, [
 		E('div', { class: 'frpc-runtime-toolbar' }, [
@@ -332,6 +371,15 @@ function renderRuntimePanel() {
 				]),
 				E('span', { id: 'frpc-autostart-state' }, _('Loading...'))
 			])
+		]),
+		E('div', { class: 'frpc-log-toolbar' }, [
+			E('h3', {}, _('Logs')),
+			E('button', {
+				id: 'frpc-clear-logs',
+				type: 'button',
+				class: 'cbi-button cbi-button-negative',
+				click: handleClearLogs
+			}, _('Clear logs'))
 		]),
 		E('pre', { id: 'frpc-log', class: 'frpc-log' }, _('Loading logs...'))
 	]);
