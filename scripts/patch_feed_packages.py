@@ -24,16 +24,17 @@ PKG_SOURCE_URL:=https://codeload.github.com/Wind4/vlmcsd/tar.gz/$(PKG_UPSTREAM_V
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_UPSTREAM_VERSION)
 """
 
-FILEBROWSER_VERSION_BLOCK = """PKG_NAME:=filebrowser
-PKG_VERSION:=1.4.0-stable
-PKG_RELEASE=1
-"""
-
-FILEBROWSER_APK_VERSION_BLOCK = """PKG_NAME:=filebrowser
-PKG_UPSTREAM_VERSION:=1.4.0-stable
-PKG_VERSION:=1.4.0
-PKG_RELEASE=1
-"""
+FILEBROWSER_VERSION_BLOCK_RE = re.compile(
+    r"(?m)^PKG_NAME:=filebrowser\n"
+    r"PKG_VERSION:=(?P<version>[0-9]+(?:\.[0-9]+){2})-stable\n"
+    r"PKG_RELEASE=1$"
+)
+FILEBROWSER_APK_VERSION_BLOCK_RE = re.compile(
+    r"(?m)^PKG_NAME:=filebrowser\n"
+    r"PKG_UPSTREAM_VERSION:=(?P<version>[0-9]+(?:\.[0-9]+){2})-stable\n"
+    r"PKG_VERSION:=(?P=version)\n"
+    r"PKG_RELEASE=1$"
+)
 
 PASSWALL_MENU_DEPENDENCY = "\tdepends on PACKAGE_$(PKG_NAME)"
 PASSWALL_MENU_VISIBILITY = "\tvisible if PACKAGE_$(PKG_NAME)"
@@ -67,29 +68,35 @@ def patch_filebrowser(source_dir: Path) -> bool:
         return False
 
     text = makefile.read_text(encoding="utf-8")
-    if FILEBROWSER_APK_VERSION_BLOCK in text:
+    if FILEBROWSER_APK_VERSION_BLOCK_RE.search(text):
         return False
-    if FILEBROWSER_VERSION_BLOCK not in text:
+    version_match = FILEBROWSER_VERSION_BLOCK_RE.search(text)
+    if version_match is None:
         match = re.search(r"(?m)^PKG_VERSION:=(\S+)$", text)
         version = match.group(1) if match else "<missing>"
-        if version == "1.4.0":
+        if re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}", version):
             return False
         raise ValueError(f"unsupported filebrowser package version: {version}")
 
-    patched = text.replace(
-        FILEBROWSER_VERSION_BLOCK,
-        FILEBROWSER_APK_VERSION_BLOCK,
-        1,
+    source_url = "releases/download/v$(PKG_VERSION)"
+    if text.count(source_url) != 1:
+        raise ValueError("unsupported filebrowser source URL")
+    version = version_match.group("version")
+    version_block = (
+        "PKG_NAME:=filebrowser\n"
+        f"PKG_UPSTREAM_VERSION:={version}-stable\n"
+        f"PKG_VERSION:={version}\n"
+        "PKG_RELEASE=1"
+    )
+    patched = (
+        text[: version_match.start()]
+        + version_block
+        + text[version_match.end() :]
     ).replace(
-        "releases/download/v$(PKG_VERSION)",
+        source_url,
         "releases/download/v$(PKG_UPSTREAM_VERSION)",
         1,
     )
-    if (
-        patched == text
-        or "releases/download/v$(PKG_UPSTREAM_VERSION)" not in patched
-    ):
-        raise ValueError("unsupported filebrowser source URL")
     makefile.write_text(patched, encoding="utf-8")
     return True
 
