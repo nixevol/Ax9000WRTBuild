@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,18 @@ def run_git(arguments: list[str], cwd: Path | None = None) -> str:
     return process.stdout.strip()
 
 
+def clone_repository(url: str, destination: Path, attempts: int = 3) -> None:
+    for attempt in range(1, attempts + 1):
+        shutil.rmtree(destination, ignore_errors=True)
+        try:
+            run_git(["clone", "--no-checkout", url, str(destination)])
+            return
+        except RuntimeError:
+            if attempt == attempts:
+                raise
+            time.sleep(attempt * 2)
+
+
 def install_packages(manifest: Path, source_dir: Path) -> list[str]:
     packages = load_manifest(manifest)
     package_root = source_dir.resolve() / "package" / "openwrt-local"
@@ -92,7 +105,7 @@ def install_packages(manifest: Path, source_dir: Path) -> list[str]:
         if destination.exists():
             shutil.rmtree(destination)
         try:
-            run_git(["clone", "--filter=blob:none", "--no-checkout", package["url"], str(destination)])
+            clone_repository(package["url"], destination)
             run_git(["checkout", "--detach", package["revision"]], cwd=destination)
             actual_revision = run_git(["rev-parse", "HEAD"], cwd=destination).lower()
             if actual_revision != package["revision"]:

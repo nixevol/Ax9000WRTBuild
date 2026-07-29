@@ -102,13 +102,24 @@ feed_index_has_package() {
 }
 
 install_feeds() {
+  local attempt
   local full_feed
   local index_file
   local feed
   local package
   local -a full_feeds=(packages luci routing telephony video nss_packages sqm_scripts_nss)
 
-  ./scripts/feeds update -a
+  for attempt in 1 2 3; do
+    if ./scripts/feeds update -a; then
+      break
+    fi
+    if [ "$attempt" -eq 3 ]; then
+      echo "Feed update failed after $attempt attempts" >&2
+      return 1
+    fi
+    echo "Feed update failed; retrying in $((attempt * 5)) seconds" >&2
+    sleep $((attempt * 5))
+  done
 
   for full_feed in "${full_feeds[@]}"; do
     if [ -f "feeds/$full_feed.index" ]; then

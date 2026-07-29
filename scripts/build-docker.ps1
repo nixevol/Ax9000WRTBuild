@@ -37,7 +37,12 @@ if ($ContainerName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$') {
 
 docker build -t $Image $Root
 if ($LASTEXITCODE -ne 0) {
-    throw "Docker image build failed with exit code $LASTEXITCODE"
+    $ImageBuildExitCode = $LASTEXITCODE
+    docker image inspect $Image *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker image build failed with exit code $ImageBuildExitCode and no local image is available"
+    }
+    Write-Warning "Docker image build failed with exit code $ImageBuildExitCode; using existing local image $Image"
 }
 
 $dockerArgs = @(
