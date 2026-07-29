@@ -1,0 +1,23 @@
+#!/bin/sh
+
+CORE=/usr/bin/frpc
+RAW_DIR=/etc/frp
+
+mode="$(uci -q get frpc.@init[0].config_mode)"
+format="$(uci -q get frpc.@init[0].raw_format)"
+
+if [ "$mode" = "raw" ]; then
+	case "$format" in
+		toml|ini) raw_config="$RAW_DIR/frpc.$format" ;;
+		*) raw_config="$RAW_DIR/frpc.toml" ;;
+	esac
+
+	if [ ! -s "$raw_config" ]; then
+		logger -p daemon.err -t frpc "Raw configuration is missing or empty: $raw_config"
+		exit 1
+	fi
+
+	exec "$CORE" -c "$raw_config"
+fi
+
+exec "$CORE" "$@"

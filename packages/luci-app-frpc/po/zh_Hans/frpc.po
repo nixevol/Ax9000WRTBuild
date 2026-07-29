@@ -3,8 +3,12 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "MIME-Version: 1.0\n"
 "Project-Id-Version: luci-app-frpc\n"
+"PO-Revision-Date: 2026-07-30 03:00+0800\n"
+"Last-Translator: local\n"
 "Language: zh_Hans\n"
+"Language-Team: Chinese (Simplified)\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
+"Content-Transfer-Encoding: 8bit\n"
 
 msgid "-- Please choose --"
 msgstr "-- 请选择 --"
@@ -422,3 +426,339 @@ msgstr "ProxyType 指定此代理的类型。有效值包括 \"tcp\"、\"udp\"�
 
 msgid "TCP + UDP"
 msgstr "TCP + UDP"
+
+msgid "Add proxy"
+msgstr "添加代理"
+
+msgid "Additional INI files"
+msgstr "附加 INI 文件"
+
+msgid "Additional INI settings"
+msgstr "附加 INI 设置"
+
+msgid "Additional proxy settings"
+msgstr "附加代理设置"
+
+msgid "Advanced"
+msgstr "高级设置"
+
+msgid "Authentication token"
+msgstr "认证令牌"
+
+msgid "Automatic restart"
+msgstr "自动重启"
+
+msgid "Backup core restored."
+msgstr "已恢复备份核心。"
+
+msgid "Backup version"
+msgstr "备份版本"
+
+msgid "Bandwidth limit"
+msgstr "带宽限制"
+
+msgid "Bandwidth limit mode"
+msgstr "限速模式"
+
+msgid "Capture stderr"
+msgstr "记录标准错误"
+
+msgid "Capture stdout"
+msgstr "记录标准输出"
+
+msgid "Client"
+msgstr "客户端"
+
+msgid "Connection"
+msgstr "连接与认证"
+
+msgid "Connection pool size"
+msgstr "连接池大小"
+
+msgid "Core management"
+msgstr "核心管理"
+
+msgid "Core path"
+msgstr "核心路径"
+
+msgid "Core size"
+msgstr "核心大小"
+
+msgid "Current version"
+msgstr "当前版本"
+
+msgid "Dial keepalive"
+msgstr "连接保活时间"
+
+msgid "Dial timeout"
+msgstr "连接超时"
+
+msgid "Disable custom TLS first byte"
+msgstr "禁用自定义 TLS 首字节"
+
+msgid "Disable log colors"
+msgstr "禁用日志颜色"
+
+msgid "Disabled"
+msgstr "禁用"
+
+msgid "DNS server"
+msgstr "DNS 服务器"
+
+msgid "Enable compression"
+msgstr "启用压缩"
+
+msgid "Enable encryption"
+msgstr "启用加密"
+
+msgid "Enable pprof"
+msgstr "启用 pprof"
+
+msgid "Enable TLS"
+msgstr "启用 TLS"
+
+msgid "Environment variables"
+msgstr "环境变量"
+
+msgid "Exit after login failure"
+msgstr "登录失败后退出"
+
+msgid "frpc core replaced."
+msgstr "frpc 核心已替换。"
+
+msgid "General"
+msgstr "常规"
+
+msgid "Health check"
+msgstr "健康检查"
+
+msgid "Health check failure threshold"
+msgstr "健康检查失败阈值"
+
+msgid "Health check interval"
+msgstr "健康检查间隔"
+
+msgid "Health check timeout"
+msgstr "健康检查超时"
+
+msgid "Health check type"
+msgstr "健康检查类型"
+
+msgid "Health check URL"
+msgstr "健康检查 URL"
+
+msgid "HTTP and domains"
+msgstr "HTTP 与域名"
+
+msgid "HTTP basic password"
+msgstr "HTTP 基础认证密码"
+
+msgid "HTTP basic user"
+msgstr "HTTP 基础认证用户"
+
+msgid "HTTP proxy password"
+msgstr "HTTP 代理密码"
+
+msgid "HTTP proxy user"
+msgstr "HTTP 代理用户"
+
+msgid "Load balancing group"
+msgstr "负载均衡组"
+
+msgid "Load balancing key"
+msgstr "负载均衡密钥"
+
+msgid "Loading logs..."
+msgstr "正在加载日志..."
+
+msgid "Loading..."
+msgstr "正在加载..."
+
+msgid "Local address"
+msgstr "本地地址"
+
+msgid "Log retention days"
+msgstr "日志保留天数"
+
+msgid "Logging"
+msgstr "日志设置"
+
+msgid "No frpc logs yet."
+msgstr "暂无 frpc 日志。"
+
+msgid "None"
+msgstr "无"
+
+msgid "Operation failed"
+msgstr "操作失败"
+
+msgid "Page configuration"
+msgstr "页面配置"
+
+msgid "Page configuration enabled and frpc restarted."
+msgstr "已启用页面配置并重启 frpc。"
+
+msgid "Page configuration enabled, but frpc is not running."
+msgstr "已启用页面配置，但 frpc 未运行。"
+
+msgid "Please wait..."
+msgstr "请稍候..."
+
+msgid "Proxies"
+msgstr "客户端代理"
+
+msgid "Proxy Protocol"
+msgstr "Proxy Protocol"
+
+msgid "Raw %s configuration"
+msgstr "原始 %s 配置"
+
+msgid "Raw configuration"
+msgstr "原始配置"
+
+msgid "Raw configuration saved and frpc restarted."
+msgstr "原始配置已保存并重启 frpc。"
+
+msgid "Raw configuration saved, but frpc is not running."
+msgstr "原始配置已保存，但 frpc 未运行。"
+
+msgid "Replacing frpc core"
+msgstr "正在替换 frpc 核心"
+
+msgid "Restore backup core"
+msgstr "恢复备份核心"
+
+msgid "Route by HTTP user"
+msgstr "按 HTTP 用户路由"
+
+msgid "Run as group"
+msgstr "运行用户组"
+
+msgid "Run as user"
+msgstr "运行用户"
+
+msgid "Runtime and logs"
+msgstr "运行与日志"
+
+msgid "Save and use raw configuration"
+msgstr "保存并启用原始配置"
+
+msgid "Secret key"
+msgstr "访问密钥"
+
+msgid "Security and management"
+msgstr "安全与管理"
+
+msgid "Server"
+msgstr "服务端"
+
+msgid "Server proxy name"
+msgstr "服务端代理名称"
+
+msgid "Server user"
+msgstr "服务端用户"
+
+msgid "Source IP"
+msgstr "源 IP 地址"
+
+msgid "Startup"
+msgstr "启动设置"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Starts at boot"
+msgstr "开机自启"
+
+msgid "Disabled at boot"
+msgstr "开机不启动"
+
+msgid "TCP and UDP"
+msgstr "TCP 和 UDP"
+
+msgid "TCP multiplexer"
+msgstr "TCP 复用器"
+
+msgid "TCP multiplexing"
+msgstr "TCP 连接复用"
+
+msgid "TCP mux keepalive interval"
+msgstr "TCP 复用保活间隔"
+
+msgid "TLS server name"
+msgstr "TLS 服务端名称"
+
+msgid "Transport"
+msgstr "传输设置"
+
+msgid "Transport protocol"
+msgstr "传输协议"
+
+msgid "Unix socket path"
+msgstr "Unix 套接字路径"
+
+msgid "Unknown"
+msgstr "未知"
+
+msgid "Upload and replace core"
+msgstr "上传并替换核心"
+
+msgid "URL locations"
+msgstr "URL 路径"
+
+msgid "Use page configuration"
+msgstr "切换到页面配置"
+
+msgid "User prefix"
+msgstr "用户前缀"
+
+msgid "Validating and replacing the uploaded core..."
+msgstr "正在校验并替换上传的核心..."
+
+msgid "Visitor"
+msgstr "访问者"
+
+msgid "Visitor bind address"
+msgstr "访问者监听地址"
+
+msgid "Visitor bind port"
+msgstr "访问者监听端口"
+
+msgid "Visitors"
+msgstr "访问者设置"
+
+msgid "Web assets directory"
+msgstr "Web 资源目录"
+
+msgid "Web management address"
+msgstr "管理界面地址"
+
+msgid "Web management password"
+msgstr "管理界面密码"
+
+msgid "Web management port"
+msgstr "管理界面端口"
+
+msgid "Web management user"
+msgstr "管理界面用户"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Port mappings"
+msgstr "端口映射"
+
+msgid "Raw configuration editor"
+msgstr "TOML / INI 原始配置"
+
+msgid "Runtime"
+msgstr "运行"
+
+msgid "Server configuration"
+msgstr "服务器配置"
+
+msgid "Transport configuration"
+msgstr "传输配置"
+
+msgid "Web management"
+msgstr "管理 WEB"

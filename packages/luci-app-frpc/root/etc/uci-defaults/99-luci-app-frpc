@@ -1,0 +1,18 @@
+#!/bin/sh
+
+if [ -f /etc/init.d/frpc ] && ! grep -q '^PROG=/usr/libexec/frpc-launcher$' /etc/init.d/frpc; then
+	sed -i 's#^PROG=/usr/bin/\$NAME$#PROG=/usr/libexec/frpc-launcher#' /etc/init.d/frpc
+fi
+
+if uci -q get frpc.@init[0] >/dev/null; then
+	uci -q get frpc.@init[0].config_mode >/dev/null || \
+		uci set frpc.@init[0].config_mode='uci'
+	uci -q get frpc.@init[0].raw_format >/dev/null || \
+		uci set frpc.@init[0].raw_format='toml'
+	uci commit frpc
+fi
+
+mkdir -p /etc/frp
+chmod 0700 /etc/frp
+
+exit 0

@@ -1,0 +1,320 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+
+CORE=/usr/bin/frpc
+BACKUP=/usr/libexec/frpc-core.backup
+UPLOAD=/tmp/frpc-core-upload
+RAW_DIR=/etc/frp
+INIT=/etc/init.d/frpc
+LAUNCHER=/usr/libexec/frpc-launcher
+
+reply_error() {
+	json_init
+	json_add_boolean success 0
+	json_add_string error "$*"
+	json_dump
+}
+
+reply_success() {
+	json_init
+	json_add_boolean success 1
+	[ -n "$1" ] && json_add_string message "$1"
+	json_dump
+}
+
+service_running() {
+	ubus call service list '{"name":"frpc"}' 2>/dev/null | \
+		grep -q '"running": true'
+}
+
+service_enabled() {
+	"$INIT" enabled >/dev/null 2>&1
+}
+
+ensure_launcher() {
+	[ -x "$LAUNCHER" ] || return 1
+	[ -f "$INIT" ] || return 1
+	grep -q '^PROG=/usr/libexec/frpc-launcher$' "$INIT" && return 0
+	grep -q '^PROG=/usr/bin/\$NAME$' "$INIT" || return 1
+	sed -i 's#^PROG=/usr/bin/\$NAME$#PROG=/usr/libexec/frpc-launcher#' "$INIT"
+}
+
+core_version() {
+	local core="$1"
+	[ -x "$core" ] || return 1
+	"$core" --version 2>/dev/null | head -n 1
+}
+
+active_config() {
+	local mode format
+	mode="$(uci -q get frpc.@init[0].config_mode)"
+	format="$(uci -q get frpc.@init[0].raw_format)"
+	if [ "$mode" = "raw" ]; then
+		case "$format" in
+			toml|ini) printf '%s/frpc.%s\n' "$RAW_DIR" "$format" ;;
+			*) printf '%s/frpc.toml\n' "$RAW_DIR" ;;
+		esac
+	else
+		printf '%s\n' /var/etc/frpc.ini
+	fi
+}
+
+valid_format() {
+	case "$1" in toml|ini) return 0 ;; *) return 1 ;; esac
+}
+
+validate_core_arch() {
+	local machine magic
+	magic="$(hexdump -n 4 -C "$1" 2>/dev/null | awk 'NR == 1 { print $2 $3 $4 $5 }')"
+	machine="$(hexdump -s 18 -n 2 -C "$1" 2>/dev/null | awk 'NR == 1 { print $2 $3 }')"
+	[ "$magic" = "7f454c46" ] && [ "$machine" = "b700" ]
+}
+
+status_call() {
+	local backup_version config_path enabled=0 format mode running=0 size=0 version sha256=""
+	service_running && running=1
+	service_enabled && enabled=1
+	version="$(core_version "$CORE")"
+	backup_version="$(core_version "$BACKUP")"
+	mode="$(uci -q get frpc.@init[0].config_mode)"
+	format="$(uci -q get frpc.@init[0].raw_format)"
+	[ "$mode" = "raw" ] || mode=uci
+	valid_format "$format" || format=toml
+	config_path="$(active_config)"
+	[ -f "$CORE" ] && size="$(wc -c < "$CORE" 2>/dev/null)"
+	[ -f "$CORE" ] && sha256="$(sha256sum "$CORE" 2>/dev/null | awk '{print $1}')"
+
+	json_init
+	json_add_boolean success 1
+	json_add_boolean running "$running"
+	json_add_boolean enabled "$enabled"
+	json_add_string version "${version:-unknown}"
+	json_add_int size "${size:-0}"
+	json_add_string sha256 "$sha256"
+	json_add_string config_mode "$mode"
+	json_add_string raw_format "$format"
+	json_add_string config_path "$config_path"
+	json_add_boolean config_exists "$([ -s "$config_path" ] && echo 1 || echo 0)"
+	json_add_string backup_version "$backup_version"
+	json_dump
+}
+
+logs_call() {
+	local content
+	content="$(logread -e frpc 2>/dev/null | tail -n 120)"
+	json_init
+	json_add_boolean success 1
+	json_add_string logs "$content"
+	json_dump
+}
+
+action_call() {
+	local action enabled=0 input running=0
+	input="$(cat)"
+	json_load "$input" || { reply_error "Invalid request"; return; }
+	json_get_var action action
+	case "$action" in start|stop|restart) ;; *) reply_error "Unsupported action"; return ;; esac
+	ensure_launcher || { reply_error "Unable to prepare the frpc launcher"; return; }
+	case "$action" in
+		start)
+			"$INIT" enable >/dev/null 2>&1 || { reply_error "Unable to enable frpc at boot"; return; }
+			if ! "$INIT" start >/dev/null 2>&1; then
+				"$INIT" disable >/dev/null 2>&1
+				reply_error "Unable to start frpc"
+				return
+			fi
+		;;
+		stop)
+			"$INIT" stop >/dev/null 2>&1
+			"$INIT" disable >/dev/null 2>&1 || { reply_error "Unable to disable frpc at boot"; return; }
+		;;
+		restart)
+			"$INIT" restart >/dev/null 2>&1 || { reply_error "Unable to restart frpc"; return; }
+		;;
+	esac
+	[ "$action" = "stop" ] || sleep 1
+	service_running && running=1
+	service_enabled && enabled=1
+	json_init
+	json_add_boolean success 1
+	json_add_boolean running "$running"
+	json_add_boolean enabled "$enabled"
+	json_dump
+}
+
+read_raw_call() {
+	local content="" format input mode path
+	input="$(cat)"
+	json_load "$input" || { reply_error "Invalid request"; return; }
+	json_get_var format format
+	valid_format "$format" || { reply_error "Unsupported configuration format"; return; }
+	path="$RAW_DIR/frpc.$format"
+	mode="$(uci -q get frpc.@init[0].config_mode)"
+	if [ "$format" = "ini" ] && [ "$mode" != "raw" ] && [ ! -f "$path" ] && [ -f /var/etc/frpc.ini ]; then
+		path=/var/etc/frpc.ini
+	fi
+	[ -f "$path" ] && content="$(cat "$path")"
+	json_init
+	json_add_boolean success 1
+	json_add_string format "$format"
+	json_add_string path "$path"
+	json_add_boolean exists "$([ -s "$path" ] && echo 1 || echo 0)"
+	json_add_string content "$content"
+	json_dump
+}
+
+save_raw_call() {
+	local content format input path running=0 tmp was_running=0
+	service_running && was_running=1
+	input="$(cat)"
+	json_load "$input" || { reply_error "Invalid request"; return; }
+	json_get_var format format
+	json_get_var content content
+	valid_format "$format" || { reply_error "Unsupported configuration format"; return; }
+	[ -n "$content" ] || { reply_error "Configuration cannot be empty"; return; }
+	[ "${#content}" -le 1048576 ] || { reply_error "Configuration is too large"; return; }
+
+	mkdir -p "$RAW_DIR" || { reply_error "Unable to create configuration directory"; return; }
+	chmod 0700 "$RAW_DIR"
+	tmp="$RAW_DIR/.frpc.$format.new"
+	printf '%s\n' "$content" > "$tmp" || { rm -f "$tmp"; reply_error "Unable to write configuration"; return; }
+	chmod 0600 "$tmp"
+	if ! "$CORE" verify -c "$tmp" >/tmp/frpc-verify.log 2>&1; then
+		input="$(tail -n 8 /tmp/frpc-verify.log)"
+		rm -f "$tmp" /tmp/frpc-verify.log
+		reply_error "Configuration validation failed: $input"
+		return
+	fi
+	rm -f /tmp/frpc-verify.log
+	path="$RAW_DIR/frpc.$format"
+	mv -f "$tmp" "$path" || { rm -f "$tmp"; reply_error "Unable to activate configuration"; return; }
+	uci set frpc.@init[0].config_mode='raw'
+	uci set frpc.@init[0].raw_format="$format"
+	uci commit frpc
+	ensure_launcher || { reply_error "Unable to prepare the frpc launcher"; return; }
+	if [ "$was_running" -eq 1 ]; then
+		"$INIT" restart >/dev/null 2>&1
+		sleep 2
+	fi
+	service_running && running=1
+	json_init
+	json_add_boolean success 1
+	json_add_boolean running "$running"
+	json_add_string path "$path"
+	json_dump
+}
+
+use_uci_call() {
+	local running=0 was_running=0
+	service_running && was_running=1
+	uci set frpc.@init[0].config_mode='uci'
+	uci commit frpc
+	ensure_launcher || { reply_error "Unable to prepare the frpc launcher"; return; }
+	if [ "$was_running" -eq 1 ]; then
+		"$INIT" restart >/dev/null 2>&1
+		sleep 2
+	fi
+	service_running && running=1
+	json_init
+	json_add_boolean success 1
+	json_add_boolean running "$running"
+	json_dump
+}
+
+install_core_call() {
+	local config_path new_version old_running=0 output size tmp=/tmp/frpc-core-candidate
+	[ -f "$UPLOAD" ] || { reply_error "Uploaded core was not found"; return; }
+	size="$(wc -c < "$UPLOAD" 2>/dev/null)"
+	[ "${size:-0}" -gt 0 ] && [ "$size" -le 67108864 ] || {
+		rm -f "$UPLOAD"
+		reply_error "Core size is invalid"
+		return
+	}
+	validate_core_arch "$UPLOAD" || {
+		rm -f "$UPLOAD"
+		reply_error "The uploaded file is not an AArch64 ELF executable"
+		return
+	}
+	cp "$UPLOAD" "$tmp" && chmod 0755 "$tmp" || {
+		rm -f "$UPLOAD" "$tmp"
+		reply_error "Unable to stage the uploaded core"
+		return
+	}
+	new_version="$(core_version "$tmp")"
+	case "$new_version" in
+		[0-9]*.[0-9]*) ;;
+		*) rm -f "$UPLOAD" "$tmp"; reply_error "Unable to read the uploaded core version"; return ;;
+	esac
+	config_path="$(active_config)"
+	[ -s "$config_path" ] || {
+		rm -f "$UPLOAD" "$tmp"
+		reply_error "Active configuration is missing"
+		return
+	}
+	if ! "$tmp" verify -c "$config_path" >/tmp/frpc-verify.log 2>&1; then
+		output="$(tail -n 8 /tmp/frpc-verify.log)"
+		rm -f "$UPLOAD" "$tmp" /tmp/frpc-verify.log
+		reply_error "The uploaded core rejected the active configuration: $output"
+		return
+	fi
+	rm -f /tmp/frpc-verify.log
+	service_running && old_running=1
+	cp -p "$CORE" "$BACKUP.new" && mv -f "$BACKUP.new" "$BACKUP" || {
+		rm -f "$UPLOAD" "$tmp" "$BACKUP.new"
+		reply_error "Unable to back up the current core"
+		return
+	}
+	cp "$tmp" "$CORE.new" && chmod 0755 "$CORE.new" && mv -f "$CORE.new" "$CORE" || {
+		rm -f "$UPLOAD" "$tmp" "$CORE.new"
+		reply_error "Unable to replace the current core"
+		return
+	}
+	rm -f "$UPLOAD" "$tmp"
+	if [ "$old_running" -eq 1 ]; then
+		ensure_launcher || { reply_error "Core replaced, but launcher preparation failed"; return; }
+		"$INIT" restart >/dev/null 2>&1
+		sleep 3
+		if ! service_running; then
+			cp "$BACKUP" "$CORE.new" && chmod 0755 "$CORE.new" && mv -f "$CORE.new" "$CORE"
+			"$INIT" restart >/dev/null 2>&1
+			reply_error "The new core failed to start; the previous core was restored"
+			return
+		fi
+	fi
+	reply_success "frpc $new_version installed"
+}
+
+restore_core_call() {
+	local backup_version old_running=0 tmp=/tmp/frpc-core-current
+	backup_version="$(core_version "$BACKUP")"
+	[ -n "$backup_version" ] || { reply_error "No valid core backup is available"; return; }
+	service_running && old_running=1
+	cp -p "$CORE" "$tmp" && cp "$BACKUP" "$CORE.new" && chmod 0755 "$CORE.new" || {
+		rm -f "$tmp" "$CORE.new"
+		reply_error "Unable to prepare core restoration"
+		return
+	}
+	mv -f "$CORE.new" "$CORE" && mv -f "$tmp" "$BACKUP"
+	if [ "$old_running" -eq 1 ]; then
+		ensure_launcher || { reply_error "Core restored, but launcher preparation failed"; return; }
+		"$INIT" restart >/dev/null 2>&1
+		sleep 2
+	fi
+	reply_success "frpc $backup_version restored"
+}
+
+case "$1:$2" in
+	list:)
+		echo '{"status":{},"logs":{},"action":{"action":"String"},"read_raw":{"format":"String"},"save_raw":{"format":"String","content":"String"},"use_uci":{},"install_core":{},"restore_core":{}}'
+	;;
+	call:status) status_call ;;
+	call:logs) logs_call ;;
+	call:action) action_call ;;
+	call:read_raw) read_raw_call ;;
+	call:save_raw) save_raw_call ;;
+	call:use_uci) use_uci_call ;;
+	call:install_core) install_core_call ;;
+	call:restore_core) restore_core_call ;;
+	*) exit 1 ;;
+esac

@@ -4,507 +4,709 @@
 'require rpc';
 'require ui';
 'require uci';
+'require poll';
+'require dom';
+'require fs';
 'require tools.widgets as widgets';
 
-function frpT(text) {
-	return _('frp Client') !== 'frp Client' ? _(text) : text;
-}
+const callManagerStatus = rpc.declare({
+	object: 'frpc-manager',
+	method: 'status',
+	expect: { '': {} }
+});
 
-function startupConf(name) {
-	return [
-		[ form.Flag, 'stdout', _('Log stdout') ],
-		[ form.Flag, 'stderr', _('Log stderr') ],
-		[ widgets.UserSelect, 'user', _('Run daemon as user') ],
-		[ widgets.GroupSelect, 'group', _('Run daemon as group') ],
-		[ form.Flag, 'respawn', _('Respawn when crashed') ],
-		[ form.DynamicList, 'env', _('Environment variable'), _('OS environments pass to frp for config file template, see %s.'.format('<a href="https://github.com/fatedier/frp#configuration-file-template">frp README</a>')), { placeholder: 'ENV_NAME=value' } ],
-		[ form.DynamicList, 'conf_inc', _('Additional INI configs'), _('INI config files include in temporary config file'), { placeholder: '/etc/config/%s_extra.ini'.format(name) } ]
-	];
-}
+const callManagerLogs = rpc.declare({
+	object: 'frpc-manager',
+	method: 'logs',
+	expect: { '': {} }
+});
 
-const clientCommonConf = [
-	[ form.Value, 'server_addr', frpT('Server address'), _('ServerAddr specifies the address of the server to connect to.<br />By default, this value is "127.0.0.1".'), { datatype: 'host' } ],
-	[ form.Value, 'server_port', _('Server port'), _('ServerPort specifies the port to connect to the server on.<br />By default, this value is 7000.'), { datatype: 'port' } ],
-	[ form.Value, 'http_proxy', _('HTTP proxy'), _('HttpProxy specifies a proxy address to connect to the server through. If this value is "", the server will be connected to directly.<br />By default, this value is read from the "http_proxy" environment variable.') ],
-	[ form.Value, 'log_file', _('Log file'), _('LogFile specifies a file where logs will be written to. This value will only be used if LogWay is set appropriately.<br />By default, this value is "console".') ],
-	[ form.ListValue, 'log_level', frpT('Log level'), _('LogLevel specifies the minimum log level. Valid values are "trace", "debug", "info", "warn", and "error".<br />By default, this value is "info".'), { values: [ 'trace', 'debug', 'info', 'warn', 'error' ] } ],
-	[ form.Value, 'log_max_days', _('Log max days'), _('LogMaxDays specifies the maximum number of days to store log information before deletion. This is only used if LogWay == "file".<br />By default, this value is 0.'), { datatype: 'uinteger' } ],
-	[ form.Flag, 'disable_log_color', _('Disable log color'), _('DisableLogColor disables log colors when LogWay == "console" when set to true.'), { datatype: 'bool', default: 'false' } ],
-	[ form.Value, 'token', _('Token'), _('Token specifies the authorization token used to create keys to be sent to the server. The server must have a matching token for authorization to succeed. <br />By default, this value is "".') ],
-	[ form.Value, 'admin_addr', _('Admin address'), _('AdminAddr specifies the address that the admin server binds to.<br />By default, this value is "0.0.0.0".'), { datatype: 'ipaddr' } ],
-	[ form.Value, 'admin_port', _('Admin port'), _('AdminPort specifies the port for the admin server to listen on. If this value is 0, the admin server will not be started.<br />By default, this value is 0.'), { datatype: 'port' } ],
-	[ form.Value, 'admin_user', _('Admin user'), _('AdminUser specifies the username that the admin server will use for login.<br />By default, this value is "admin".') ],
-	[ form.Value, 'admin_pwd', _('Admin password'), _('AdminPwd specifies the password that the admin server will use for login.<br />By default, this value is "admin".'), { password: true } ],
-	[ form.Value, 'assets_dir', _('Assets dir'), _('AssetsDir specifies the local directory that the admin server will load resources from. If this value is "", assets will be loaded from the bundled executable using statik.<br />By default, this value is "".') ],
-	[ form.Flag, 'tcp_mux', _('TCP mux'), _('TcpMux toggles TCP stream multiplexing. This allows multiple requests from a client to share a single TCP connection. If this value is true, the server must have TCP multiplexing enabled as well.<br />By default, this value is true.'), { datatype: 'bool', default: 'true' } ],
-	[ form.Value, 'user', frpT('User'), _('User specifies a prefix for proxy names to distinguish them from other clients. If this value is not "", proxy names will automatically be changed to "{user}.{proxy_name}".<br />By default, this value is "".') ],
-	[ form.Flag, 'login_fail_exit', _('Exit when login fail'), _('LoginFailExit controls whether or not the client should exit after a failed login attempt. If false, the client will retry until a login attempt succeeds.<br />By default, this value is true.'), { datatype: 'bool', default: 'true' } ],
-	[ form.ListValue, 'protocol', frpT('Protocol'), _('Protocol specifies the protocol to use when interacting with the server. Valid values are "tcp", "kcp", "quic" and "websocket".<br />By default, this value is "tcp".'), { values: [ 'tcp', 'kcp', 'quic', 'websocket' ], placeholder: frpT('-- Please choose --') } ],
-	[ form.Flag, 'tls_enable', _('TLS'), _('TLS Enable specifies whether or not TLS should be used when communicating with the server.'), { datatype: 'bool' } ],
-	[ form.Value, 'heartbeat_interval', _('Heartbeat interval'), _('HeartBeatInterval specifies at what interval heartbeats are sent to the server, in seconds. It is not recommended to change this value.<br />By default, this value is 30.'), { datatype: 'uinteger' } ],
-	[ form.Value, 'heartbeat_timeout', _('Heartbeat timeout'), _('HeartBeatTimeout specifies the maximum allowed heartbeat response delay before the connection is terminated, in seconds. It is not recommended to change this value.<br />By default, this value is 90.'), { datatype: 'uinteger' } ],
-	[ form.DynamicList, '_', _('Additional settings'), _('This list can be used to specify INI parameters which have not been included in this LuCI.'), { placeholder: 'Key-A=Value-A' } ]
-];
+const callManagerAction = rpc.declare({
+	object: 'frpc-manager',
+	method: 'action',
+	params: [ 'action' ],
+	expect: { '': {} }
+});
 
-const baseProxyConf = [
-	[ form.Value, 'name', _('Proxy name'), undefined, { rmempty: false, optional: false } ],
-	[ form.ListValue, 'type', _('Proxy type'), _('ProxyType specifies the type of this proxy. Valid values include "tcp", "udp", "tcp_udp", "http", "https", "stcp" and "xtcp".<br />By default, this value is "tcp".'), { values: [ [ 'tcp', 'TCP' ], [ 'udp', 'UDP' ], [ 'tcp_udp', _('TCP + UDP') ], [ 'http', 'HTTP' ], [ 'https', 'HTTPS' ], [ 'stcp', 'STCP' ], [ 'xtcp', 'XTCP' ] ] } ],
-	[ form.Flag, 'use_encryption', _('Encryption'), _('UseEncryption controls whether or not communication with the server will be encrypted. Encryption is done using the tokens supplied in the server and client configuration.<br />By default, this value is false.'), { datatype: 'bool' } ],
-	[ form.Flag, 'use_compression', _('Compression'), _('UseCompression controls whether or not communication with the server will be compressed.<br />By default, this value is false.'), { datatype: 'bool' } ],
-	[ form.Value, 'local_ip', _('Local IP'), _('LocalIp specifies the IP address or host name to proxy to.'), { datatype: 'host' } ],
-	[ form.Value, 'local_port', _('Local port'), _('LocalPort specifies the port to proxy to.'), { datatype: 'port' } ]
-];
+const callReadRaw = rpc.declare({
+	object: 'frpc-manager',
+	method: 'read_raw',
+	params: [ 'format' ],
+	expect: { '': {} }
+});
 
-const bindInfoConf = [
-	[ form.Value, 'remote_port', _('Remote port'), _('If remote_port is 0, the server will assign a random port for this proxy.'), { datatype: 'port' } ]
-];
+const callSaveRaw = rpc.declare({
+	object: 'frpc-manager',
+	method: 'save_raw',
+	params: [ 'format', 'content' ],
+	expect: { '': {} }
+});
 
-const domainConf = [
-	[ form.Value, 'custom_domains', _('Custom domains') ],
-	[ form.Value, 'subdomain', _('Subdomain') ]
-];
+const callUseUci = rpc.declare({
+	object: 'frpc-manager',
+	method: 'use_uci',
+	expect: { '': {} }
+});
 
-const httpProxyConf = [
-	[ form.Value, 'locations', _('Locations') ],
-	[ form.Value, 'http_user', _('HTTP user') ],
-	[ form.Value, 'http_pwd', _('HTTP password') ],
-	[ form.Value, 'host_header_rewrite', _('Host header rewrite') ]
-];
+const callInstallCore = rpc.declare({
+	object: 'frpc-manager',
+	method: 'install_core',
+	expect: { '': {} }
+});
 
-const stcpProxyConf = [
-	[ form.ListValue, 'role', _('Role'), undefined, { values: [ 'server', 'visitor' ] } ],
-	[ form.Value, 'server_name', _('Server name'), undefined, { depends: [ { role: 'visitor' } ] } ],
-	[ form.Value, 'bind_addr', _('Bind addr'), undefined, { depends: [ { role: 'visitor' } ] } ],
-	[ form.Value, 'bind_port', _('Bind port'), undefined, { depends: [ { role: 'visitor' } ] } ],
-	[ form.Value, 'sk', _('Sk') ]
-];
-
-const pluginConf = [
-	[ form.ListValue, 'plugin', _('Plugin'), undefined, { values: [ '', 'http_proxy', 'socks5', 'unix_domain_socket' ], rmempty: true } ],
-	[ form.Value, 'plugin_http_user', _('HTTP user'), undefined, { depends: { plugin: 'http_proxy' } } ],
-	[ form.Value, 'plugin_http_passwd', _('HTTP password'), undefined, { depends: { plugin: 'http_proxy' } } ],
-	[ form.Value, 'plugin_user', _('SOCKS5 user'), undefined, { depends: { plugin: 'socks5' } } ],
-	[ form.Value, 'plugin_passwd', _('SOCKS5 password'), undefined, { depends: { plugin: 'socks5' } } ],
-	[ form.Value, 'plugin_unix_path', _('Unix domain socket path'), undefined, { depends: { plugin: 'unix_domain_socket' }, optional: false, rmempty: false, datatype: 'file', placeholder: '/var/run/docker.sock', default: '/var/run/docker.sock' } ]
-];
+const callRestoreCore = rpc.declare({
+	object: 'frpc-manager',
+	method: 'restore_core',
+	expect: { '': {} }
+});
 
 const pageStyle = [
-	'.frp-service-status { display: inline-flex; gap: 2.5em; align-items: center; flex-wrap: wrap; }',
-	'.frp-service-status-item { white-space: nowrap; }',
-	'.cbi-tabmenu { display: flex; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }',
-	'.cbi-tabmenu > li { flex: 0 0 auto; }'
+	'.frpc-runtime-toolbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }',
+	'.frpc-runtime-actions { display:flex; align-items:center; gap:.6rem; min-height:2.4rem; }',
+	'.frpc-runtime-statuses { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }',
+	'.frpc-runtime-state { display:flex; align-items:center; gap:.55rem; font-weight:600; }',
+	'.frpc-state-dot { width:.72rem; height:.72rem; border-radius:50%; background:#8b949e; display:inline-block; flex:0 0 auto; }',
+	'.frpc-state-dot.running { background:#2da44e; }',
+	'.frpc-state-dot.stopped { background:#cf222e; }',
+	'.frpc-log { box-sizing:border-box; height:18rem; max-height:18rem; overflow:auto; margin:0; padding:.8rem; border:1px solid var(--border-color-medium, #d8dee4); border-radius:4px; background:var(--background-color-low, #f6f8fa); color:var(--text-color-high, #24292f); white-space:pre-wrap; word-break:break-word; font:12px/1.55 monospace; }',
+	'.frpc-editor { box-sizing:border-box; width:100%; min-height:25rem; max-height:25rem; resize:vertical; font:12px/1.55 monospace; }',
+	'.frpc-panel-toolbar { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin:.5rem 0 1rem; }',
+	'.frpc-panel-toolbar select { min-width:8rem; }',
+	'.frpc-meta { display:grid; grid-template-columns:minmax(8rem, 11rem) minmax(0, 1fr); gap:.55rem 1rem; margin:0 0 1rem; }',
+	'.frpc-meta dt { font-weight:600; }',
+	'.frpc-meta dd { margin:0; min-width:0; overflow-wrap:anywhere; font-family:monospace; }',
+	'.frpc-meta-value { display:flex; align-items:center; gap:.65rem; flex-wrap:wrap; }',
+	'.frpc-subcard { margin:0 0 1rem; padding:1rem; border:1px solid var(--border-color-medium, #d8dee4); border-radius:4px; }',
+	'.frpc-subcard h3 { margin:0 0 .8rem; font-size:1rem; }',
+	'.frpc-mode { font-weight:600; margin-left:auto; }',
+	'.cbi-value-description { display:none; }',
+	'.cbi-tabmenu { display:flex; flex-wrap:nowrap; overflow-x:auto; white-space:nowrap; }',
+	'.cbi-tabmenu > li { flex:0 0 auto; }',
+	'@media (max-width:600px) { .frpc-meta { grid-template-columns:1fr; gap:.2rem; } .frpc-meta dd { margin-bottom:.55rem; } .frpc-mode { width:100%; margin-left:0; } }'
 ].join('\n');
 
+const serverOptions = [
+	[ form.Value, 'server_addr', _('Server address'), _('Address of the frps server.'), { datatype: 'host', rmempty: false } ],
+	[ form.Value, 'server_port', _('Server port'), _('Port of the frps server.'), { datatype: 'port', placeholder: '7000', rmempty: false } ],
+	[ form.ListValue, 'protocol', _('Transport protocol'), _('Protocol used to connect to the frps server.'), { values: [ [ 'tcp', 'TCP' ], [ 'kcp', 'KCP' ], [ 'quic', 'QUIC' ], [ 'websocket', 'WebSocket' ], [ 'wss', 'WebSocket TLS' ] ], default: 'tcp' } ],
+	[ form.Flag, 'tls_enable', _('Enable TLS'), _('Encrypt the connection between frpc and frps.'), { datatype: 'bool', default: 'true' } ],
+	[ form.Value, 'tls_server_name', _('TLS server name'), _('Server name used for TLS certificate verification.') ],
+	[ form.Flag, 'disable_custom_tls_first_byte', _('Disable custom TLS first byte'), _('Use a standard TLS handshake without the frp custom first byte.'), { datatype: 'bool', default: 'false' } ],
+	[ form.Value, 'token', _('Authentication token'), _('Token shared with the frps server.'), { password: true } ],
+	[ form.Value, 'user', _('User prefix'), _('Prefix used to distinguish proxy names from other clients.') ],
+	[ form.Flag, 'login_fail_exit', _('Exit after login failure'), _('Stop the process after a failed login instead of retrying.'), { datatype: 'bool', default: 'true' } ],
+	[ form.Value, 'http_proxy', _('HTTP proxy'), _('HTTP or SOCKS5 proxy used to connect to the frps server.'), { placeholder: 'http://127.0.0.1:8080' } ],
+	[ form.Value, 'dns_server', _('DNS server'), _('DNS server used by frpc.'), { datatype: 'ipaddr' } ]
+];
+
+const transportOptions = [
+	[ form.Value, 'pool_count', _('Connection pool size'), _('Number of pre-established connections kept by the client.'), { datatype: 'uinteger', placeholder: '0' } ],
+	[ form.Flag, 'tcp_mux', _('TCP multiplexing'), _('Share one TCP connection between multiple proxy requests.'), { datatype: 'bool', default: 'true' } ],
+	[ form.Value, 'tcp_mux_keepalive_interval', _('TCP mux keepalive interval'), _('Keepalive interval in seconds for multiplexed connections.'), { datatype: 'uinteger', placeholder: '30' } ],
+	[ form.Value, 'dial_server_timeout', _('Dial timeout'), _('Maximum time in seconds to establish a server connection.'), { datatype: 'uinteger', placeholder: '10' } ],
+	[ form.Value, 'dial_server_keepalive', _('Dial keepalive'), _('TCP keepalive interval in seconds for server connections.'), { datatype: 'uinteger', placeholder: '7200' } ],
+	[ form.Value, 'connect_server_local_ip', _('Source IP'), _('Local source address used to connect to the server.'), { datatype: 'ipaddr' } ],
+	[ form.Value, 'heartbeat_interval', _('Heartbeat interval'), _('Heartbeat interval in seconds.'), { datatype: 'uinteger', placeholder: '30' } ],
+	[ form.Value, 'heartbeat_timeout', _('Heartbeat timeout'), _('Heartbeat timeout in seconds.'), { datatype: 'uinteger', placeholder: '90' } ]
+];
+
+const webManagementOptions = [
+	[ form.Value, 'admin_addr', _('Web management address'), _('Address of the local frpc web management interface.'), { datatype: 'ipaddr', placeholder: '127.0.0.1' } ],
+	[ form.Value, 'admin_port', _('Web management port'), _('Port of the local frpc web management interface.'), { datatype: 'port' } ],
+	[ form.Value, 'admin_user', _('Web management user') ],
+	[ form.Value, 'admin_pwd', _('Web management password'), undefined, { password: true } ],
+	[ form.Value, 'assets_dir', _('Web assets directory') ],
+	[ form.Flag, 'pprof_enable', _('Enable pprof'), _('Expose Go pprof endpoints on the web management interface.'), { datatype: 'bool', default: 'false' } ]
+];
+
+const loggingOptions = [
+	[ form.Value, 'log_file', _('Log file'), _('Use console for system log output, or specify an absolute file path.'), { placeholder: 'console' } ],
+	[ form.ListValue, 'log_level', _('Log level'), undefined, { values: [ 'trace', 'debug', 'info', 'warn', 'error' ], default: 'info' } ],
+	[ form.Value, 'log_max_days', _('Log retention days'), _('Maximum number of days to retain log files.'), { datatype: 'uinteger', placeholder: '3' } ],
+	[ form.Flag, 'disable_log_color', _('Disable log colors'), _('Disable ANSI colors in console output.'), { datatype: 'bool', default: 'true' } ]
+];
+
+const rawIniOptions = [
+	[ form.DynamicList, '_', _('Additional INI settings'), _('Extra key=value entries written to the common section.'), { placeholder: 'key = value' } ]
+];
+
+const startupOptions = [
+	[ form.Flag, 'stdout', _('Capture stdout'), undefined, { default: '1' } ],
+	[ form.Flag, 'stderr', _('Capture stderr'), undefined, { default: '1' } ],
+	[ widgets.UserSelect, 'user', _('Run as user') ],
+	[ widgets.GroupSelect, 'group', _('Run as group') ],
+	[ form.Flag, 'respawn', _('Automatic restart'), _('Restart frpc automatically after an unexpected exit.'), { default: '1' } ],
+	[ form.DynamicList, 'env', _('Environment variables'), _('Environment variables passed to frpc configuration templates.'), { placeholder: 'NAME=value' } ],
+	[ form.DynamicList, 'conf_inc', _('Additional INI files'), _('INI files appended to the generated page configuration.'), { placeholder: '/etc/frp/extra.ini' } ]
+];
+
+const proxyGeneralOptions = [
+	[ form.Flag, 'use_encryption', _('Enable encryption'), _('Encrypt traffic between frpc and frps.'), { datatype: 'bool', default: 'false' } ],
+	[ form.Flag, 'use_compression', _('Enable compression'), _('Compress traffic between frpc and frps.'), { datatype: 'bool', default: 'false' } ],
+	[ form.Value, 'bandwidth_limit', _('Bandwidth limit'), _('Per-proxy bandwidth limit, for example 10MB or 1MB.'), { placeholder: '10MB' } ],
+	[ form.ListValue, 'bandwidth_limit_mode', _('Bandwidth limit mode'), undefined, { values: [ [ 'client', _('Client') ], [ 'server', _('Server') ] ], default: 'client' } ],
+	[ form.ListValue, 'proxy_protocol_version', _('Proxy Protocol'), undefined, { values: [ [ '', _('Disabled') ], [ 'v1', 'v1' ], [ 'v2', 'v2' ] ] } ],
+	[ form.Value, 'group', _('Load balancing group') ],
+	[ form.Value, 'group_key', _('Load balancing key'), undefined, { password: true } ]
+];
+
+const proxyHttpOptions = [
+	[ form.Value, 'custom_domains', _('Custom domains'), _('Comma-separated domain names.') ],
+	[ form.Value, 'subdomain', _('Subdomain') ],
+	[ form.Value, 'locations', _('URL locations'), _('Comma-separated URL prefixes.') ],
+	[ form.Value, 'http_user', _('HTTP basic user') ],
+	[ form.Value, 'http_pwd', _('HTTP basic password'), undefined, { password: true } ],
+	[ form.Value, 'host_header_rewrite', _('Host header rewrite') ],
+	[ form.Value, 'route_by_http_user', _('Route by HTTP user') ],
+	[ form.Value, 'multiplexer', _('TCP multiplexer'), undefined, { placeholder: 'httpconnect' } ]
+];
+
+const proxyVisitorOptions = [
+	[ form.ListValue, 'role', _('Role'), undefined, { values: [ [ 'server', _('Server') ], [ 'visitor', _('Visitor') ] ] } ],
+	[ form.Value, 'server_name', _('Server proxy name'), undefined, { depends: { role: 'visitor' } } ],
+	[ form.Value, 'bind_addr', _('Visitor bind address'), undefined, { datatype: 'ipaddr', depends: { role: 'visitor' }, placeholder: '127.0.0.1' } ],
+	[ form.Value, 'bind_port', _('Visitor bind port'), undefined, { datatype: 'port', depends: { role: 'visitor' } } ],
+	[ form.Value, 'sk', _('Secret key'), undefined, { password: true } ],
+	[ form.Value, 'server_user', _('Server user'), undefined, { depends: { role: 'visitor' } } ]
+];
+
+const proxyHealthOptions = [
+	[ form.ListValue, 'health_check_type', _('Health check type'), undefined, { values: [ [ '', _('Disabled') ], [ 'tcp', 'TCP' ], [ 'http', 'HTTP' ] ] } ],
+	[ form.Value, 'health_check_url', _('Health check URL'), undefined, { depends: { health_check_type: 'http' }, placeholder: '/status' } ],
+	[ form.Value, 'health_check_timeout_s', _('Health check timeout'), undefined, { datatype: 'uinteger', placeholder: '3' } ],
+	[ form.Value, 'health_check_max_failed', _('Health check failure threshold'), undefined, { datatype: 'uinteger', placeholder: '1' } ],
+	[ form.Value, 'health_check_interval_s', _('Health check interval'), undefined, { datatype: 'uinteger', placeholder: '10' } ]
+];
+
+const proxyPluginOptions = [
+	[ form.ListValue, 'plugin', _('Plugin'), undefined, { values: [ [ '', _('Disabled') ], [ 'http_proxy', 'HTTP Proxy' ], [ 'socks5', 'SOCKS5' ], [ 'unix_domain_socket', 'Unix Domain Socket' ] ] } ],
+	[ form.Value, 'plugin_http_user', _('HTTP proxy user'), undefined, { depends: { plugin: 'http_proxy' } } ],
+	[ form.Value, 'plugin_http_passwd', _('HTTP proxy password'), undefined, { password: true, depends: { plugin: 'http_proxy' } } ],
+	[ form.Value, 'plugin_user', _('SOCKS5 user'), undefined, { depends: { plugin: 'socks5' } } ],
+	[ form.Value, 'plugin_passwd', _('SOCKS5 password'), undefined, { password: true, depends: { plugin: 'socks5' } } ],
+	[ form.Value, 'plugin_unix_path', _('Unix socket path'), undefined, { depends: { plugin: 'unix_domain_socket' }, datatype: 'file', placeholder: '/var/run/docker.sock' } ]
+];
+
+const proxyAdvancedOptions = [
+	[ form.DynamicList, '_', _('Additional proxy settings'), _('Extra key=value entries written to this proxy section.'), { placeholder: 'key = value' } ]
+];
+
+let runtimeState = {};
+let runtimePollRegistered = false;
 let normalizeClientProxiesLock = null;
 
+function setParams(option, params) {
+	if (!params)
+		return;
+
+	for (let key in params) {
+		let value = params[key];
+
+		if (key === 'values') {
+			for (let item of value)
+				option.value.apply(option, Array.isArray(item) ? item : [ item ]);
+		}
+		else if (key === 'depends') {
+			let dependencies = Array.isArray(value) ? value : [ value ];
+			let existing = option.deps && option.deps.length ? option.deps : [ {} ];
+			let merged = [];
+			for (let dependency of dependencies)
+				for (let current of existing)
+					merged.push(Object.assign({}, current, dependency));
+			option.deps = merged;
+		}
+		else {
+			option[key] = value;
+		}
+	}
+
+	if (params.datatype === 'bool') {
+		option.enabled = 'true';
+		option.disabled = 'false';
+	}
+}
+
+function addTabOptions(section, tab, options, defaults) {
+	for (let item of options) {
+		let option = section.taboption(tab, item[0], item[1], item[2], item[3]);
+		setParams(option, item[4]);
+		setParams(option, defaults);
+	}
+}
+
+function addOptions(section, options) {
+	for (let item of options) {
+		let option = section.option(item[0], item[1], item[2], item[3]);
+		setParams(option, item[4]);
+	}
+}
+
+function ensureSuccess(result) {
+	if (!result || result.success === false || result.success === 0)
+		throw new Error(result && result.error ? result.error : _('Operation failed'));
+	return result;
+}
+
+function notifyError(error) {
+	ui.addNotification(null, E('p', {}, error.message || String(error)), 'error');
+}
+
+function cleanLog(text) {
+	return String(text || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+}
+
+function formatSize(bytes) {
+	let value = Number(bytes || 0);
+	if (value < 1024)
+		return '%d B'.format(value);
+	if (value < 1024 * 1024)
+		return '%.1f KiB'.format(value / 1024);
+	return '%.2f MiB'.format(value / 1024 / 1024);
+}
+
+function updateRuntimeDom(status, logs) {
+	runtimeState = status || runtimeState;
+	let running = !!runtimeState.running;
+	let button = document.getElementById('frpc-toggle-service');
+	let state = document.getElementById('frpc-runtime-state');
+	let dot = document.getElementById('frpc-state-dot');
+	let log = document.getElementById('frpc-log');
+	let autostart = document.getElementById('frpc-autostart-state');
+
+	if (button) {
+		button.textContent = running ? _('Stop service') : _('Start service');
+		button.className = 'cbi-button ' + (running ? 'cbi-button-negative' : 'cbi-button-action');
+		button.disabled = false;
+	}
+	if (state)
+		state.textContent = running ? _('Running') : _('Stopped');
+	if (dot)
+		dot.className = 'frpc-state-dot ' + (running ? 'running' : 'stopped');
+	if (log && logs)
+		log.textContent = cleanLog(logs.logs) || _('No frpc logs yet.');
+	if (autostart)
+		autostart.textContent = runtimeState.enabled ? _('Starts at boot') : _('Disabled at boot');
+
+	updateCoreDom(runtimeState);
+}
+
+function refreshRuntime() {
+	return Promise.all([
+		L.resolveDefault(callManagerStatus(), {}),
+		L.resolveDefault(callManagerLogs(), {})
+	]).then(function(result) {
+		updateRuntimeDom(result[0], result[1]);
+	});
+}
+
+function handleServiceToggle(event) {
+	event.preventDefault();
+	let button = event.currentTarget;
+	let action = runtimeState.running ? 'stop' : 'start';
+	button.disabled = true;
+	button.textContent = _('Please wait...');
+
+	return callManagerAction(action).then(ensureSuccess).then(function() {
+		return refreshRuntime();
+	}).catch(function(error) {
+		button.disabled = false;
+		notifyError(error);
+	});
+}
+
+function renderRuntimePanel() {
+	let panel = E('div', {}, [
+		E('div', { class: 'frpc-runtime-toolbar' }, [
+			E('div', { class: 'frpc-runtime-actions' }, [
+				E('button', {
+					id: 'frpc-toggle-service',
+					type: 'button',
+					class: 'cbi-button cbi-button-action',
+					click: handleServiceToggle
+				}, _('Please wait...'))
+			]),
+			E('div', { class: 'frpc-runtime-statuses' }, [
+				E('div', { class: 'frpc-runtime-state' }, [
+					E('span', { id: 'frpc-state-dot', class: 'frpc-state-dot' }),
+					E('span', { id: 'frpc-runtime-state' }, _('Loading...'))
+				]),
+				E('span', { id: 'frpc-autostart-state' }, _('Loading...'))
+			])
+		]),
+		E('pre', { id: 'frpc-log', class: 'frpc-log' }, _('Loading logs...'))
+	]);
+
+	window.setTimeout(refreshRuntime, 0);
+	if (!runtimePollRegistered) {
+		runtimePollRegistered = true;
+		poll.add(refreshRuntime);
+	}
+	return panel;
+}
+
+function loadRawEditor(format, editor, pathNode) {
+	editor.disabled = true;
+	pathNode.textContent = _('Loading...');
+	return callReadRaw(format).then(ensureSuccess).then(function(result) {
+		editor.value = result.content || '';
+		pathNode.textContent = result.path || '';
+	}).catch(notifyError).finally(function() {
+		editor.disabled = false;
+	});
+}
+
+function renderRawPanel() {
+	let format = E('select', {}, [
+		E('option', { value: 'toml' }, 'TOML'),
+		E('option', { value: 'ini' }, 'INI')
+	]);
+	format.value = runtimeState.config_mode === 'raw' ? (runtimeState.raw_format || 'toml') : 'ini';
+	let editor = E('textarea', {
+		class: 'cbi-input-textarea frpc-editor',
+		spellcheck: 'false',
+		wrap: 'off'
+	});
+	let path = E('span', { class: 'frpc-mode' }, '');
+	let saveButton = E('button', {
+		type: 'button',
+		class: 'cbi-button cbi-button-action'
+	}, _('Save and use raw configuration'));
+	let uciButton = E('button', {
+		type: 'button',
+		class: 'cbi-button'
+	}, _('Use page configuration'));
+
+	format.addEventListener('change', function() {
+		loadRawEditor(format.value, editor, path);
+	});
+	saveButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		saveButton.disabled = true;
+		return callSaveRaw(format.value, editor.value).then(ensureSuccess).then(function(result) {
+			ui.addNotification(null, E('p', {}, result.running ? _('Raw configuration saved and frpc restarted.') : _('Raw configuration saved, but frpc is not running.')));
+			return refreshRuntime();
+		}).catch(notifyError).finally(function() {
+			saveButton.disabled = false;
+		});
+	});
+	uciButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		uciButton.disabled = true;
+		return callUseUci().then(ensureSuccess).then(function(result) {
+			ui.addNotification(null, E('p', {}, result.running ? _('Page configuration enabled and frpc restarted.') : _('Page configuration enabled, but frpc is not running.')));
+			return refreshRuntime();
+		}).catch(notifyError).finally(function() {
+			uciButton.disabled = false;
+		});
+	});
+
+	window.setTimeout(function() {
+		loadRawEditor(format.value, editor, path);
+	}, 0);
+
+	return E('fieldset', { class: 'cbi-section frpc-subcard' }, [
+		E('h3', {}, _('Raw configuration editor')),
+		E('div', { class: 'frpc-panel-toolbar' }, [ format, saveButton, uciButton, path ]),
+		editor
+	]);
+}
+
+function downloadCore(path, filename) {
+	return fs.read_direct(path, 'blob').then(function(blob) {
+		let url = URL.createObjectURL(blob);
+		let link = E('a', { href: url, download: filename, style: 'display:none' });
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+	}).catch(notifyError);
+}
+
+function updateCoreDom(status) {
+	let fields = {
+		'frpc-core-version': status.version || _('Unknown'),
+		'frpc-core-size': formatSize(status.size),
+		'frpc-core-sha256': status.sha256 || '-',
+		'frpc-core-backup': status.backup_version || _('None')
+	};
+	for (let id in fields) {
+		let node = document.getElementById(id);
+		if (node)
+			node.textContent = fields[id];
+	}
+	let restore = document.getElementById('frpc-restore-core');
+	if (restore)
+		restore.disabled = !status.backup_version;
+	let downloadBackup = document.getElementById('frpc-download-backup');
+	if (downloadBackup)
+		downloadBackup.disabled = !status.backup_version;
+}
+
+function renderCorePanel() {
+	let uploadButton = E('button', {
+		type: 'button',
+		class: 'cbi-button cbi-button-action'
+	}, _('Upload and replace core'));
+	let restoreButton = E('button', {
+		id: 'frpc-restore-core',
+		type: 'button',
+		class: 'cbi-button',
+		disabled: !runtimeState.backup_version
+	}, _('Restore backup core'));
+	let downloadCurrentButton = E('button', {
+		id: 'frpc-download-current',
+		type: 'button',
+		class: 'cbi-button'
+	}, _('Download'));
+	let downloadBackupButton = E('button', {
+		id: 'frpc-download-backup',
+		type: 'button',
+		class: 'cbi-button',
+		disabled: !runtimeState.backup_version
+	}, _('Download'));
+
+	uploadButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		return ui.uploadFile('/tmp/frpc-core-upload').then(function() {
+			ui.showModal(_('Replacing frpc core'), [ E('p', { class: 'spinning' }, _('Validating and replacing the uploaded core...')) ]);
+			return callInstallCore();
+		}).then(ensureSuccess).then(function(result) {
+			ui.addNotification(null, E('p', {}, result.message || _('frpc core replaced.')));
+			return refreshRuntime();
+		}).catch(notifyError).finally(function() {
+			ui.hideModal();
+		});
+	});
+	restoreButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		restoreButton.disabled = true;
+		return callRestoreCore().then(ensureSuccess).then(function(result) {
+			ui.addNotification(null, E('p', {}, result.message || _('Backup core restored.')));
+			return refreshRuntime();
+		}).catch(notifyError).finally(function() {
+			restoreButton.disabled = false;
+		});
+	});
+	downloadCurrentButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		return downloadCore('/usr/bin/frpc', 'frpc');
+	});
+	downloadBackupButton.addEventListener('click', function(event) {
+		event.preventDefault();
+		return downloadCore('/usr/libexec/frpc-core.backup', 'frpc-backup');
+	});
+
+	window.setTimeout(function() { updateCoreDom(runtimeState); }, 0);
+	return E('div', {}, [
+		E('dl', { class: 'frpc-meta' }, [
+			E('dt', {}, _('Current version')), E('dd', { class: 'frpc-meta-value' }, [ E('span', { id: 'frpc-core-version' }, runtimeState.version || _('Loading...')), downloadCurrentButton ]),
+			E('dt', {}, _('Core path')), E('dd', {}, '/usr/bin/frpc'),
+			E('dt', {}, _('Core size')), E('dd', { id: 'frpc-core-size' }, formatSize(runtimeState.size)),
+			E('dt', {}, 'SHA256'), E('dd', { id: 'frpc-core-sha256' }, runtimeState.sha256 || '-'),
+			E('dt', {}, _('Backup version')), E('dd', { class: 'frpc-meta-value' }, [ E('span', { id: 'frpc-core-backup' }, runtimeState.backup_version || _('None')), downloadBackupButton ])
+		]),
+		E('div', { class: 'frpc-panel-toolbar' }, [ uploadButton, restoreButton ])
+	]);
+}
+
 function stripProxyProtocolSuffix(name) {
-	return String(name || '').replace(/_(tcp|udp|http|https|stcp|xtcp)$/i, '');
+	return String(name || '').replace(/_(tcp|udp|http|https|stcp|xtcp|tcpmux|sudp)$/i, '');
 }
 
 function makeProxyName(name, type) {
-	const suffixMap = {
-		tcp: 'tcp',
-		udp: 'udp',
-		http: 'http',
-		https: 'https',
-		stcp: 'stcp',
-		xtcp: 'xtcp'
-	};
-
-	const suffix = suffixMap[type];
+	let supported = [ 'tcp', 'udp', 'http', 'https', 'stcp', 'xtcp', 'tcpmux', 'sudp' ];
 	let base = stripProxyProtocolSuffix(name);
-
 	if (!base)
 		base = 'proxy';
-
-	return suffix ? '%s_%s'.format(base, suffix) : base;
+	return supported.indexOf(type) >= 0 ? '%s_%s'.format(base, type) : base;
 }
 
 function snapshotProxyOptions(section) {
-	const data = {};
-
-	for (let key in section) {
-		if (key.charAt(0) === '.')
-			continue;
-
-		data[key] = section[key];
-	}
-
+	let data = {};
+	for (let key in section)
+		if (key.charAt(0) !== '.')
+			data[key] = section[key];
 	return data;
 }
 
 function findProxySection(name, type) {
-	const sections = uci.sections('frpc', 'conf') || [];
-
-	for (let section of sections) {
-		const sid = section['.name'];
-
-		if (sid === 'common')
-			continue;
-
-		if (section.name === name && section.type === type)
-			return sid;
+	for (let section of (uci.sections('frpc', 'conf') || [])) {
+		if (section['.name'] !== 'common' && section.name === name && section.type === type)
+			return section['.name'];
 	}
-
 	return null;
 }
 
-function writeProxyOptions(dstSection, src, type, name) {
-	for (let key in src) {
-		if (key === 'name' || key === 'type')
-			continue;
-
-		uci.set('frpc', dstSection, key, src[key]);
-	}
-
-	uci.set('frpc', dstSection, 'type', type);
-	uci.set('frpc', dstSection, 'name', name);
+function writeProxyOptions(sectionId, source, type, name) {
+	for (let key in source)
+		if (key !== 'name' && key !== 'type')
+			uci.set('frpc', sectionId, key, source[key]);
+	uci.set('frpc', sectionId, 'type', type);
+	uci.set('frpc', sectionId, 'name', name);
 }
 
 function removeDuplicateProxySections() {
-	const sections = uci.sections('frpc', 'conf') || [];
-	const seen = {};
-
-	for (let section of sections) {
-		const sid = section['.name'];
-
-		if (sid === 'common')
+	let seen = {};
+	let supported = [ 'tcp', 'udp', 'http', 'https', 'stcp', 'xtcp', 'tcpmux', 'sudp' ];
+	for (let section of (uci.sections('frpc', 'conf') || [])) {
+		let sectionId = section['.name'];
+		if (sectionId === 'common' || supported.indexOf(section.type) < 0)
 			continue;
-
-		const type = section.type;
-
-		if ([ 'tcp', 'udp', 'http', 'https', 'stcp', 'xtcp' ].indexOf(type) < 0)
-			continue;
-
-		const name = makeProxyName(section.name, type);
-		const key = '%s:%s'.format(type, name);
-
-		if (seen[key]) {
-			uci.remove('frpc', sid);
-			continue;
+		let name = makeProxyName(section.name, section.type);
+		let key = '%s:%s'.format(section.type, name);
+		if (seen[key])
+			uci.remove('frpc', sectionId);
+		else {
+			seen[key] = true;
+			uci.set('frpc', sectionId, 'name', name);
 		}
-
-		seen[key] = true;
-		uci.set('frpc', sid, 'name', name);
 	}
 }
 
 function normalizeClientProxiesOnce() {
-	const sections = uci.sections('frpc', 'conf') || [];
-	const tcpUdpList = [];
-
-	for (let section of sections) {
-		const sid = section['.name'];
-
-		if (sid === 'common')
+	let combined = [];
+	let supported = [ 'tcp', 'udp', 'http', 'https', 'stcp', 'xtcp', 'tcpmux', 'sudp' ];
+	for (let section of (uci.sections('frpc', 'conf') || [])) {
+		let sectionId = section['.name'];
+		if (sectionId === 'common')
 			continue;
-
-		const type = section.type || 'tcp';
-
-		if (type === 'tcp_udp') {
-			tcpUdpList.push({
-				sid: sid,
-				data: snapshotProxyOptions(section)
-			});
-		}
-		else if ([ 'tcp', 'udp', 'http', 'https', 'stcp', 'xtcp' ].indexOf(type) >= 0) {
-			uci.set('frpc', sid, 'name', makeProxyName(section.name, type));
-		}
+		let type = section.type || 'tcp';
+		if (type === 'tcp_udp')
+			combined.push({ sectionId: sectionId, data: snapshotProxyOptions(section) });
+		else if (supported.indexOf(type) >= 0)
+			uci.set('frpc', sectionId, 'name', makeProxyName(section.name, type));
 	}
 
-	for (let item of tcpUdpList) {
-		const src = item.data;
-		const tcpName = makeProxyName(src.name, 'tcp');
-		const udpName = makeProxyName(src.name, 'udp');
-
-
-		uci.remove('frpc', item.sid);
-
-		let tcpSection = findProxySection(tcpName, 'tcp');
-		if (!tcpSection)
-			tcpSection = uci.add('frpc', 'conf');
-
-		writeProxyOptions(tcpSection, src, 'tcp', tcpName);
-
-		let udpSection = findProxySection(udpName, 'udp');
-		if (!udpSection)
-			udpSection = uci.add('frpc', 'conf');
-
-		writeProxyOptions(udpSection, src, 'udp', udpName);
+	for (let item of combined) {
+		let source = item.data;
+		uci.remove('frpc', item.sectionId);
+		for (let type of [ 'tcp', 'udp' ]) {
+			let name = makeProxyName(source.name, type);
+			let sectionId = findProxySection(name, type) || uci.add('frpc', 'conf');
+			writeProxyOptions(sectionId, source, type, name);
+		}
 	}
-
 	removeDuplicateProxySections();
-
 	return uci.save();
 }
 
 function normalizeClientProxies() {
 	if (normalizeClientProxiesLock)
 		return normalizeClientProxiesLock;
-
-	normalizeClientProxiesLock = uci.load('frpc').then(function() {
-		return normalizeClientProxiesOnce();
-	}).then(function(ret) {
+	normalizeClientProxiesLock = uci.load('frpc').then(normalizeClientProxiesOnce).finally(function() {
 		normalizeClientProxiesLock = null;
-		return ret;
-	}).catch(function(e) {
-		normalizeClientProxiesLock = null;
-		throw e;
 	});
-
 	return normalizeClientProxiesLock;
 }
 
-function setParams(o, params) {
-	if (!params)
-		return;
+function configureProxyGrid(section) {
+	let option;
+	section.anonymous = true;
+	section.addremove = true;
+	section.sortable = true;
+	section.addbtntitle = _('Add proxy');
+	section.filter = function(sectionId) { return sectionId !== 'common'; };
+	section.tab('general', _('General'));
+	section.tab('http', _('HTTP and domains'));
+	section.tab('visitor', _('Visitors'));
+	section.tab('health', _('Health check'));
+	section.tab('plugin', _('Plugin'));
+	section.tab('advanced', _('Advanced'));
 
-	for (let key in params) {
-		let val = params[key];
+	option = section.taboption('general', form.Value, 'name', _('Proxy name'));
+	option.rmempty = false;
+	option.modalonly = false;
+	option = section.taboption('general', form.ListValue, 'type', _('Proxy type'));
+	for (let value of [ [ 'tcp', 'TCP' ], [ 'udp', 'UDP' ], [ 'tcp_udp', _('TCP and UDP') ], [ 'http', 'HTTP' ], [ 'https', 'HTTPS' ], [ 'stcp', 'STCP' ], [ 'xtcp', 'XTCP' ], [ 'tcpmux', 'TCPMUX' ], [ 'sudp', 'SUDP' ] ])
+		option.value.apply(option, value);
+	option.default = 'tcp';
+	option.modalonly = false;
+	option = section.taboption('general', form.Value, 'local_ip', _('Local address'));
+	option.datatype = 'host';
+	option.placeholder = '127.0.0.1';
+	option.modalonly = false;
+	option = section.taboption('general', form.Value, 'local_port', _('Local port'));
+	option.datatype = 'port';
+	option.modalonly = false;
+	option = section.taboption('general', form.Value, 'remote_port', _('Remote port'));
+	option.datatype = 'port';
+	for (let type of [ 'tcp', 'udp', 'tcp_udp', 'sudp' ])
+		option.depends('type', type);
+	option.modalonly = false;
+	option.cfgvalue = function() {
+		let value = this.super('cfgvalue', arguments);
+		return value && value !== '0' ? value : '#';
+	};
 
-		if (key === 'values') {
-			for (let v of val) {
-				let args = v;
-
-				if (!Array.isArray(args))
-					args = [ args ];
-
-				o.value.apply(o, args);
-			}
-		}
-		else if (key === 'depends') {
-			if (!Array.isArray(val))
-				val = [ val ];
-
-			const oldDeps = o.deps && o.deps.length ? o.deps : [ {} ];
-			const deps = [];
-
-			for (let v of val) {
-				const d = {};
-
-				for (let vkey in v)
-					d[vkey] = v[vkey];
-
-				for (let od of oldDeps) {
-					const merged = {};
-
-					for (let dkey in od)
-						merged[dkey] = od[dkey];
-
-					for (let dkey in d)
-						merged[dkey] = d[dkey];
-
-					deps.push(merged);
-				}
-			}
-
-			o.deps = deps;
-		}
-		else {
-			o[key] = params[key];
-		}
-	}
-
-	if (params.datatype === 'bool') {
-		o.enabled = 'true';
-		o.disabled = 'false';
-	}
-}
-
-function defTabOpts(s, t, opts, params) {
-	for (let opt of opts) {
-		const o = s.taboption(t, opt[0], opt[1], opt[2], opt[3]);
-
-		setParams(o, opt[4]);
-		setParams(o, params);
-	}
-}
-
-function defOpts(s, opts, params) {
-	for (let opt of opts) {
-		const o = s.option(opt[0], opt[1], opt[2], opt[3]);
-
-		setParams(o, opt[4]);
-		setParams(o, params);
-	}
-}
-
-const callServiceList = rpc.declare({
-	object: 'service',
-	method: 'list',
-	params: [ 'name' ],
-	expect: { '': {} }
-});
-
-const callRcInit = rpc.declare({
-	object: 'rc',
-	method: 'init',
-	params: [ 'name', 'action' ]
-});
-
-function getServiceStatus(name) {
-	return L.resolveDefault(callServiceList(name), {}).then(function(res) {
-		try {
-			const instances = res[name].instances;
-
-			for (let key in instances)
-				if (instances[key].running)
-					return true;
-		}
-		catch (e) {}
-
-		return false;
-	});
-}
-
-function getAllServiceStatus() {
-	return getServiceStatus('frpc').then(function(running) {
-		return {
-			frpc: running
-		};
-	});
-}
-
-function renderOneStatus(label) {
-	return '<em class="frp-service-status-item"><span style="color:green"><strong>%s %s</strong></span></em>'.format(label, frpT('Running'));
-}
-
-function renderStatus(status) {
-	const items = [];
-
-	if (status.frpc)
-		items.push(renderOneStatus(_('frp Client')));
-
-	return items.length ? '<span class="frp-service-status">%s</span>'.format(items.join('')) : '';
-}
-
-function updateServiceStatus() {
-	return L.resolveDefault(getAllServiceStatus()).then(function(res) {
-		const statusView = document.getElementById('service_status');
-
-		if (statusView)
-			statusView.innerHTML = renderStatus(res);
-	});
-}
-
-function serviceActionTitle(action) {
-	return action === 'start' ? _('Start service') : _('Stop service');
-}
-
-function handleServiceAction(name, action) {
-	return callRcInit(name, action).then(function(ret) {
-		if (ret)
-			throw _('Command failed');
-
-		window.setTimeout(updateServiceStatus, 1000);
-	}).catch(function(e) {
-		ui.addNotification(null, E('p', _('Failed to execute "/etc/init.d/%s %s" action: %s').format(name, action, e)));
-	});
-}
-
-function defServiceActionButtons(s, tab, name, params) {
-	for (let action of [ 'start', 'stop' ]) {
-		const title = serviceActionTitle(action);
-		const o = s.taboption(tab, form.Button, '_%s_%s'.format(name, action), title);
-
-		o.inputtitle = title;
-		o.inputstyle = action === 'start' ? 'positive' : 'negative';
-		o.onclick = function() {
-			return handleServiceAction(name, action);
-		};
-
-		setParams(o, params);
-	}
+	addTabOptions(section, 'general', proxyGeneralOptions, { optional: true, modalonly: true });
+	addTabOptions(section, 'http', proxyHttpOptions, { optional: true, modalonly: true, depends: [ { type: 'http' }, { type: 'https' }, { type: 'tcpmux' } ] });
+	addTabOptions(section, 'visitor', proxyVisitorOptions, { optional: true, modalonly: true, depends: [ { type: 'stcp' }, { type: 'xtcp' }, { type: 'sudp' } ] });
+	addTabOptions(section, 'health', proxyHealthOptions, { optional: true, modalonly: true });
+	addTabOptions(section, 'plugin', proxyPluginOptions, { optional: true, modalonly: true });
+	addTabOptions(section, 'advanced', proxyAdvancedOptions, { optional: true, modalonly: true });
 }
 
 return view.extend({
-	render: function() {
-		let m, s, o;
+	load: function() {
+		return Promise.all([
+			uci.load('frpc'),
+			L.resolveDefault(callManagerStatus(), {})
+		]);
+	},
 
-		m = new form.Map('frpc', _('frp Client'));
+	render: function(data) {
+		let map, section, option;
+		runtimeState = data[1] || {};
+		map = new form.Map('frpc', _('frp Client'));
+		section = map.section(form.NamedSection, 'common', 'conf');
+		section.dynamic = true;
+		section.tab('runtime', _('Runtime'));
+		section.tab('connection', _('Server configuration'));
+		section.tab('transport', _('Transport configuration'));
+		section.tab('security', _('Web management'));
+		section.tab('logging', _('Logging'));
+		section.tab('proxies', _('Port mappings'));
+		section.tab('startup', _('Startup'));
+		section.tab('raw', _('Raw configuration'));
+		section.tab('core', _('Core management'));
 
-		s = m.section(form.NamedSection, '_status');
-		s.anonymous = true;
-		s.render = function(section_id) {
-			L.Poll.add(function() {
-				return L.resolveDefault(getAllServiceStatus()).then(function(res) {
-					const statusView = document.getElementById('service_status');
+		option = section.taboption('runtime', form.DummyValue, '_runtime');
+		option.rawhtml = true;
+		option.renderWidget = renderRuntimePanel;
+		addTabOptions(section, 'connection', serverOptions, { optional: true });
+		addTabOptions(section, 'transport', transportOptions, { optional: true });
+		addTabOptions(section, 'security', webManagementOptions, { optional: true });
+		addTabOptions(section, 'logging', loggingOptions, { optional: true });
 
-					if (statusView)
-						statusView.innerHTML = renderStatus(res);
-				});
-			});
+		option = section.taboption('proxies', form.SectionValue, '_proxies', form.GridSection, 'conf');
+		configureProxyGrid(option.subsection);
 
-			return E('div', { class: 'cbi-map' }, [
-				E('style', {}, pageStyle),
-				E('fieldset', { class: 'cbi-section' }, [
-					E('p', { id: 'service_status' }, _('Collecting data ...'))
-				])
-			]);
+		option = section.taboption('startup', form.SectionValue, '_startup', form.TypedSection, 'init');
+		option.subsection.anonymous = true;
+		option.subsection.dynamic = true;
+		addOptions(option.subsection, startupOptions);
+
+		option = section.taboption('raw', form.SectionValue, '_raw_ini', form.TypedSection, 'conf', _('Additional INI settings'));
+		option.subsection.anonymous = true;
+		option.subsection.addremove = false;
+		option.subsection.filter = function(sectionId) { return sectionId === 'common'; };
+		addOptions(option.subsection, rawIniOptions);
+
+		option = section.taboption('raw', form.DummyValue, '_raw');
+		option.rawhtml = true;
+		option.renderWidget = renderRawPanel;
+		option = section.taboption('core', form.DummyValue, '_core');
+		option.rawhtml = true;
+		option.renderWidget = renderCorePanel;
+
+		let originalSave = map.save.bind(map);
+		map.save = function() {
+			return originalSave.apply(this, arguments).then(normalizeClientProxies);
 		};
 
-		s = m.section(form.NamedSection, 'common', 'conf');
-		s.dynamic = true;
-		s.tab('client_common', _('Client Common Settings'));
-		s.tab('client_init', _('Client Startup Settings'));
-		defServiceActionButtons(s, 'client_common', 'frpc');
-		defTabOpts(s, 'client_common', clientCommonConf, { optional: true });
-
-		o = s.taboption('client_common', form.SectionValue, 'client_proxy', form.GridSection, 'conf', _('Client Proxy Settings'));
-		let clientProxySection = o.subsection;
-		clientProxySection.anonymous = true;
-		clientProxySection.addremove = true;
-		clientProxySection.sortable = true;
-		clientProxySection.addbtntitle = _('Add new proxy...');
-		clientProxySection.filter = function(section_id) {
-			return section_id !== 'common';
-		};
-		clientProxySection.tab('general', _('General Settings'));
-		clientProxySection.tab('http', _('HTTP Settings'));
-		clientProxySection.tab('plugin', _('Plugin Settings'));
-		clientProxySection.option(form.Value, 'name', _('Proxy name')).modalonly = false;
-		o = clientProxySection.option(form.ListValue, 'type', _('Proxy type'));
-		o.value('tcp', 'TCP');
-		o.value('udp', 'UDP');
-		o.value('tcp_udp', _('TCP + UDP'));
-		o.value('http', 'HTTP');
-		o.value('https', 'HTTPS');
-		o.value('stcp', 'STCP');
-		o.value('xtcp', 'XTCP');
-		o.modalonly = false;
-		clientProxySection.option(form.Value, 'local_ip', _('Local IP')).modalonly = false;
-		clientProxySection.option(form.Value, 'local_port', _('Local port')).modalonly = false;
-		o = clientProxySection.option(form.Value, 'remote_port', _('Remote port'));
-		o.modalonly = false;
-		o.depends('type', 'tcp');
-		o.depends('type', 'udp');
-		o.depends('type', 'tcp_udp');
-		o.cfgvalue = function() {
-			const v = this.super('cfgvalue', arguments);
-
-			return v && v != '0' ? v : '#';
-		};
-		defTabOpts(clientProxySection, 'general', baseProxyConf, { modalonly: true });
-		defTabOpts(clientProxySection, 'general', bindInfoConf, { optional: true, modalonly: true, depends: [ { type: 'tcp' }, { type: 'udp' }, { type: 'tcp_udp' } ] });
-		defTabOpts(clientProxySection, 'http', domainConf, { optional: true, modalonly: true, depends: [ { type: 'http' }, { type: 'https' } ] });
-		defTabOpts(clientProxySection, 'http', httpProxyConf, { optional: true, modalonly: true, depends: { type: 'http' } });
-		defTabOpts(clientProxySection, 'general', stcpProxyConf, { modalonly: true, depends: [ { type: 'stcp' }, { type: 'xtcp' } ] });
-		defTabOpts(clientProxySection, 'plugin', pluginConf, { modalonly: true });
-
-		o = s.taboption('client_init', form.SectionValue, 'client_init', form.TypedSection, 'init', _('Client Startup Settings'));
-		let clientInitSection = o.subsection;
-		clientInitSection.anonymous = true;
-		clientInitSection.dynamic = true;
-		defOpts(clientInitSection, startupConf('frpc'));
-
-		const originalSave = m.save.bind(m);
-
-		m.save = function() {
-			return originalSave.apply(this, arguments).then(function() {
-				return normalizeClientProxies();
-			});
-		};
-
-		return m.render();
+		return map.render().then(function(node) {
+			node.insertBefore(E('style', {}, pageStyle), node.firstChild);
+			return node;
+		});
 	}
 });

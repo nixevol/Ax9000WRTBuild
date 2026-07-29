@@ -39,6 +39,61 @@ FILEBROWSER_APK_VERSION_BLOCK_RE = re.compile(
 
 PASSWALL_MENU_DEPENDENCY = "\tdepends on PACKAGE_$(PKG_NAME)"
 PASSWALL_MENU_VISIBILITY = "\tvisible if PACKAGE_$(PKG_NAME)"
+FRP_VERSION = "0.70.1"
+FRP_RELEASE_HASH = "3990f396a9a490ee7f0e5f355287750ed41520064ed999eab443b5e9a78d773d"
+FRPC_RELEASE_MAKEFILE = f"""include $(TOPDIR)/rules.mk
+
+PKG_NAME:=frp
+PKG_VERSION:={FRP_VERSION}
+PKG_RELEASE:=1
+
+PKG_SOURCE:=frp_$(PKG_VERSION)_linux_arm64.tar.gz
+PKG_SOURCE_URL:=https://github.com/fatedier/frp/releases/download/v$(PKG_VERSION)
+PKG_HASH:={FRP_RELEASE_HASH}
+PKG_BUILD_DIR:=$(BUILD_DIR)/frp_$(PKG_VERSION)_linux_arm64
+
+PKG_MAINTAINER:=local
+PKG_LICENSE:=Apache-2.0
+PKG_LICENSE_FILES:=LICENSE
+
+include $(INCLUDE_DIR)/package.mk
+
+define Package/frpc
+  SECTION:=net
+  CATEGORY:=Network
+  SUBMENU:=Web Servers/Proxies
+  TITLE:=frpc - fast reverse proxy client
+  URL:=https://github.com/fatedier/frp
+  DEPENDS:=@aarch64
+endef
+
+define Package/frpc/description
+  frpc is the client component of frp. This package uses the official
+  statically linked ARM64 release binary and does not include frps.
+endef
+
+define Package/frpc/conffiles
+/etc/config/frpc
+endef
+
+define Build/Compile
+endef
+
+define Package/frpc/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/frpc $(1)/usr/bin/frpc
+	$(INSTALL_DIR) $(1)/etc/frp/frpc.d
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/frpc.toml $(1)/etc/frp/frpc.d/frpc_example.toml
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/frpc.config $(1)/etc/config/frpc
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/frpc.init $(1)/etc/init.d/frpc
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_DATA) ./files/frpc.uci-defaults $(1)/etc/uci-defaults/frpc
+endef
+
+$(eval $(call BuildPackage,frpc))
+"""
 
 
 def patch_vlmcsd(source_dir: Path) -> bool:
@@ -129,20 +184,36 @@ def patch_passwall_menu_dependencies(source_dir: Path) -> list[str]:
     return patched
 
 
-def prefer_local_luci_app_frpc(source_dir: Path) -> bool:
-    local_package = source_dir / "package" / "openwrt-local" / "luci-app-frpc"
-    feed_package = source_dir / "package" / "feeds" / "luci" / "luci-app-frpc"
-    if not local_package.exists() or not feed_package.exists():
+def patch_frpc_release_package(source_dir: Path) -> bool:
+    makefile = source_dir / "feeds" / "packages" / "net" / "frp" / "Makefile"
+    if not makefile.exists():
         return False
 
-    if feed_package.is_symlink() or feed_package.is_file():
-        feed_package.unlink()
-        return True
-    if feed_package.is_dir():
-        shutil.rmtree(feed_package)
-        return True
+    text = makefile.read_text(encoding="utf-8")
+    if text == FRPC_RELEASE_MAKEFILE:
+        return False
+    if "PKG_NAME:=frp" not in text or "define Package/frp/install" not in text:
+        raise ValueError("unsupported frp package Makefile structure")
+    makefile.write_text(FRPC_RELEASE_MAKEFILE, encoding="utf-8")
+    return True
 
-    return False
+
+def prefer_local_luci_app_frpc(source_dir: Path) -> bool:
+    local_package = source_dir / "package" / "openwrt-local" / "luci-app-frpc"
+    if not local_package.exists():
+        return False
+
+    removed = False
+    for name in ("luci-app-frpc", "luci-app-frps"):
+        feed_package = source_dir / "package" / "feeds" / "luci" / name
+        if feed_package.is_symlink() or feed_package.is_file():
+            feed_package.unlink()
+            removed = True
+        elif feed_package.is_dir():
+            shutil.rmtree(feed_package)
+            removed = True
+
+    return removed
 
 
 def main() -> None:
@@ -160,8 +231,10 @@ def main() -> None:
             "Patched recursive PassWall menu dependencies: "
             + ", ".join(patched_passwall)
         )
+    if patch_frpc_release_package(args.source.resolve()):
+        print(f"Using official frpc {FRP_VERSION} ARM64 release binary without frps")
     if prefer_local_luci_app_frpc(args.source.resolve()):
-        print("Using local luci-app-frpc package instead of LuCI feed package")
+        print("Using local frpc-only LuCI package without feed frpc/frps pages")
 
 
 if __name__ == "__main__":

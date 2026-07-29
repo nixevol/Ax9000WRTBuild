@@ -2,18 +2,23 @@
 	"luci-app-frpc": {
 		"description": "Grant access to LuCI app frpc",
 		"read": {
+			"cgi-io": [ "upload" ],
 			"file": {
 				"/etc/group": [ "read" ],
-				"/etc/passwd": [ "read" ]
+				"/etc/passwd": [ "read" ],
+				"/usr/bin/frpc": [ "read" ],
+				"/usr/libexec/frpc-core.backup": [ "read" ]
 			},
 			"ubus": {
+				"frpc-manager": [ "status", "logs", "read_raw" ],
 				"service": [ "list" ]
 			},
 			"uci": [ "frpc" ]
 		},
 		"write": {
+			"cgi-io": [ "upload" ],
 			"ubus": {
-				"rc": [ "init" ]
+				"frpc-manager": [ "action", "save_raw", "use_uci", "install_core", "restore_core" ]
 			},
 			"uci": [ "frpc" ]
 		}
