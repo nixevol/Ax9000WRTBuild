@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 from pathlib import Path
 
 
@@ -128,6 +129,22 @@ def patch_passwall_menu_dependencies(source_dir: Path) -> list[str]:
     return patched
 
 
+def prefer_local_luci_app_frpc(source_dir: Path) -> bool:
+    local_package = source_dir / "package" / "openwrt-local" / "luci-app-frpc"
+    feed_package = source_dir / "package" / "feeds" / "luci" / "luci-app-frpc"
+    if not local_package.exists() or not feed_package.exists():
+        return False
+
+    if feed_package.is_symlink() or feed_package.is_file():
+        feed_package.unlink()
+        return True
+    if feed_package.is_dir():
+        shutil.rmtree(feed_package)
+        return True
+
+    return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
@@ -143,6 +160,8 @@ def main() -> None:
             "Patched recursive PassWall menu dependencies: "
             + ", ".join(patched_passwall)
         )
+    if prefer_local_luci_app_frpc(args.source.resolve()):
+        print("Using local luci-app-frpc package instead of LuCI feed package")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,11 @@
+/.gitattributes text eol=lf
 *.sh text eol=lf
 *.env text eol=lf
 *.patch text eol=lf
+*.js text eol=lf
+*.json text eol=lf
 Dockerfile text eol=lf
+packages/*/Makefile text eol=lf
 profiles/*/files/etc/uci-defaults/* text eol=lf
 packages/*/files/etc/init.d/* text eol=lf
 packages/*/files/etc/uci-defaults/* text eol=lf

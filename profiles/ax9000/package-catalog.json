@@ -19,7 +19,7 @@
     { "name": "luci-app-easymesh", "title": "EasyMesh 组网", "category": "网络管理", "source": "kiddin9" },
     { "name": "luci-app-easytier", "title": "EasyTier 异地组网", "category": "远程与组网", "source": "kiddin9" },
     { "name": "luci-app-filebrowser", "title": "File Browser 文件管理", "category": "存储与下载", "source": "kiddin9" },
-    { "name": "luci-app-frpc", "title": "FRP 内网穿透客户端", "category": "远程与组网", "source": "kiddin9" },
+    { "name": "luci-app-frpc", "title": "FRP 内网穿透客户端", "category": "远程与组网", "source": "local" },
     { "name": "luci-app-frps", "title": "FRP 内网穿透服务端", "category": "远程与组网", "source": "kiddin9" },
     { "name": "luci-app-guest-wifi", "title": "访客 Wi-Fi", "category": "网络管理", "source": "kiddin9" },
     { "name": "luci-app-hd-idle", "title": "硬盘休眠", "category": "存储与下载", "source": "packages" },
