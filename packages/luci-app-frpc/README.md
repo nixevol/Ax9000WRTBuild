@@ -36,6 +36,6 @@ make package/luci-app-frpc/compile V=s
 Generated package names are expected to look like:
 
 ```text
-luci-app-frpc-2.0-r10.apk
-luci-i18n-frpc-zh-cn-2.0-r10.apk
+luci-app-frpc-2.0-r11.apk
+luci-i18n-frpc-zh-cn-2.0-r11.apk
 ```
