@@ -293,7 +293,7 @@ msgid "Proxy name"
 msgstr "代理名称"
 
 msgid "Proxy type"
-msgstr "代理类型"
+msgstr "代理协议"
 
 msgid "ProxyBindAddr specifies the address that the proxy binds to. This value may be the same as BindAddr.<br />By default, this value is \"0.0.0.0\"."
 msgstr "ProxyBindAddr 指定代理绑定的地址。此值可以与 BindAddr 相同。<br />默认值为 \"0.0.0.0\"。"

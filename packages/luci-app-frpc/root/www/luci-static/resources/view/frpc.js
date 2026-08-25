@@ -686,11 +686,34 @@ function configureProxyGrid(section) {
 		return value && value !== '0' ? value : '#';
 	};
 
-	addTabOptions(section, 'general', proxyGeneralOptions, { optional: true, modalonly: true });
+	option = section.taboption('general', form.Value, 'name', _('Proxy name'));
+	option.rmempty = false;
+	option.modalonly = true;
+	option = section.taboption('general', form.ListValue, 'type', _('Proxy type'));
+	for (let value of [ [ 'tcp', 'TCP' ], [ 'udp', 'UDP' ], [ 'tcp_udp', _('TCP and UDP') ], [ 'http', 'HTTP' ], [ 'https', 'HTTPS' ], [ 'stcp', 'STCP' ], [ 'xtcp', 'XTCP' ], [ 'tcpmux', 'TCPMUX' ], [ 'sudp', 'SUDP' ] ])
+		option.value.apply(option, value);
+	option.default = 'tcp';
+	option.rmempty = false;
+	option.modalonly = true;
+	option = section.taboption('general', form.Value, 'local_ip', _('Local address'));
+	option.datatype = 'host';
+	option.placeholder = '127.0.0.1';
+	option.modalonly = true;
+	option = section.taboption('general', form.Value, 'local_port', _('Local port'));
+	option.datatype = 'port';
+	option.rmempty = false;
+	option.modalonly = true;
+	option = section.taboption('general', form.Value, 'remote_port', _('Remote port'));
+	option.datatype = 'port';
+	for (let type of [ 'tcp', 'udp', 'tcp_udp', 'sudp' ])
+		option.depends('type', type);
+	option.modalonly = true;
+
 	addTabOptions(section, 'http', proxyHttpOptions, { optional: true, modalonly: true, depends: [ { type: 'http' }, { type: 'https' }, { type: 'tcpmux' } ] });
 	addTabOptions(section, 'visitor', proxyVisitorOptions, { optional: true, modalonly: true, depends: [ { type: 'stcp' }, { type: 'xtcp' }, { type: 'sudp' } ] });
 	addTabOptions(section, 'health', proxyHealthOptions, { optional: true, modalonly: true });
 	addTabOptions(section, 'plugin', proxyPluginOptions, { optional: true, modalonly: true });
+	addTabOptions(section, 'advanced', proxyGeneralOptions, { optional: true, modalonly: true });
 	addTabOptions(section, 'advanced', proxyAdvancedOptions, { optional: true, modalonly: true });
 }
 
