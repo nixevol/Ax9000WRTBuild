@@ -216,6 +216,22 @@ def prefer_local_luci_app_frpc(source_dir: Path) -> bool:
     return removed
 
 
+def patch_appfilter_acl_path(source_dir: Path) -> bool:
+    """Keep both OAF packages and their distinct ACL groups without collision."""
+    makefile = source_dir / "feeds/kiddin9/open-app-filter/Makefile"
+    if not makefile.is_file():
+        return False
+    text = makefile.read_text(encoding="utf-8")
+    original = "$(INSTALL_DATA) ./files/luci-app-oaf.json $(1)/usr/share/rpcd/acl.d/"
+    replacement = original + "appfilter.json"
+    if replacement in text:
+        return False
+    if text.count(original) != 1:
+        raise ValueError(f"unsupported appfilter ACL install rule: {makefile}")
+    makefile.write_text(text.replace(original, replacement, 1), encoding="utf-8")
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
@@ -235,6 +251,8 @@ def main() -> None:
         print(f"Using official frpc {FRP_VERSION} ARM64 release binary without frps")
     if prefer_local_luci_app_frpc(args.source.resolve()):
         print("Using local frpc-only LuCI package without feed frpc/frps pages")
+    if patch_appfilter_acl_path(args.source.resolve()):
+        print("Separated appfilter backend ACL from luci-app-oaf frontend ACL")
 
 
 if __name__ == "__main__":
