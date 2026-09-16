@@ -7,6 +7,10 @@ PROFILE=${PROFILE:-ax9000}
 CLEAN=${CLEAN:-0}
 JOBS=${JOBS:-0}
 PREPARE_ONLY=${PREPARE_ONLY:-0}
+UPDATE_SOURCES=${UPDATE_SOURCES:-0}
+DOWNLOAD_DIR=${DOWNLOAD_DIR:-$ROOT_DIR/work/downloads}
+CCACHE_DIR=${CCACHE_DIR:-$WORK_DIR/ccache}
+export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-8G}
 
 PROFILE_DIR="$ROOT_DIR/profiles/$PROFILE"
 if [ ! -f "$PROFILE_DIR/profile.env" ]; then
@@ -25,6 +29,14 @@ REQUESTED_DISABLED_PACKAGES_FILE="$OPENWRT_DIR/.requested-disabled-packages"
 REQUESTED_CONFIG_FILE="$OPENWRT_DIR/.requested-build.config"
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR"
+mkdir -p "$DOWNLOAD_DIR" "$CCACHE_DIR" "$ROOT_DIR/outputs/build-logs"
+exec 9>"$WORK_DIR/.build-$PROFILE.lock"
+flock -n 9 || { echo "Another build is already using the $PROFILE cache" >&2; exit 1; }
+BUILD_LOG="$ROOT_DIR/outputs/build-logs/$PROFILE-$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$BUILD_LOG") 2>&1
+echo "Build log: $BUILD_LOG"
+echo "Persistent downloads: $DOWNLOAD_DIR"
+echo "Persistent compiler cache: $CCACHE_DIR"
 
 clone_or_update_source() {
   local current_url=""
@@ -42,11 +54,16 @@ clone_or_update_source() {
     return
   fi
 
-  git -C "$OPENWRT_DIR" fetch --depth 1 origin "$REPO_BRANCH"
+  if [ "$UPDATE_SOURCES" = "1" ] || ! git -C "$OPENWRT_DIR" show-ref --verify --quiet "refs/remotes/origin/$REPO_BRANCH"; then
+    git -C "$OPENWRT_DIR" fetch --depth 1 origin "$REPO_BRANCH"
+  else
+    echo "Reusing cached source revision; set UPDATE_SOURCES=1 to fetch upstream"
+  fi
   git -C "$OPENWRT_DIR" checkout -B "$REPO_BRANCH" "origin/$REPO_BRANCH"
   git -C "$OPENWRT_DIR" reset --hard "origin/$REPO_BRANCH"
+  # Avoid throwing away host-tool and compiler timestamps on incremental runs.
   git -C "$OPENWRT_DIR" clean -ffdx \
-    -e feeds/ -e dl/ -e build_dir/ -e staging_dir/
+    -e feeds/ -e dl/ -e build_dir/ -e staging_dir/ -e .ccache/
 }
 
 reset_preserved_feeds() {
@@ -55,6 +72,9 @@ reset_preserved_feeds() {
 
   while IFS= read -r -d '' feed_dir; do
     [ -e "$feed_dir/.git" ] || continue
+    if [ -z "$(git -C "$feed_dir" status --porcelain)" ]; then
+      continue
+    fi
     git -C "$feed_dir" reset --hard
     git -C "$feed_dir" clean -ffdx
   done < <(find "$feeds_dir" -mindepth 1 -maxdepth 1 -type d -print0)
@@ -107,10 +127,26 @@ install_feeds() {
   local index_file
   local feed
   local package
+  local update_mode="-i"
+  local feeds_fingerprint
+  feeds_fingerprint="$(sha256sum feeds.conf.default | cut -d' ' -f1)"
   local -a full_feeds=(packages luci routing telephony video nss_packages sqm_scripts_nss)
+  local -a selected_feed_packages=()
+
+  if [ "$UPDATE_SOURCES" = "1" ] || [ "$feeds_fingerprint" != "$(cat "$WORK_DIR/.feeds-$PROFILE.sha256" 2>/dev/null || true)" ]; then
+    update_mode=""
+  else
+    while read -r kind feed _; do
+      [[ "$kind" == src-git* ]] || continue
+      if [ ! -d "feeds/$feed/.git" ]; then
+        update_mode=""
+        break
+      fi
+    done < feeds.conf.default
+  fi
 
   for attempt in 1 2 3; do
-    if ./scripts/feeds update -a; then
+    if ./scripts/feeds update ${update_mode:+$update_mode} -a; then
       break
     fi
     if [ "$attempt" -eq 3 ]; then
@@ -120,6 +156,7 @@ install_feeds() {
     echo "Feed update failed; retrying in $((attempt * 5)) seconds" >&2
     sleep $((attempt * 5))
   done
+  printf '%s\n' "$feeds_fingerprint" > "$WORK_DIR/.feeds-$PROFILE.sha256"
 
   for full_feed in "${full_feeds[@]}"; do
     if [ -f "feeds/$full_feed.index" ]; then
@@ -134,11 +171,15 @@ install_feeds() {
       continue
     fi
 
+    selected_feed_packages=()
     while IFS= read -r package; do
       if feed_index_has_package "$index_file" "$package"; then
-        ./scripts/feeds install -p "$feed" "$package"
+        selected_feed_packages+=("$package")
       fi
     done < "$REQUESTED_PACKAGES_FILE"
+    if [ "${#selected_feed_packages[@]}" -gt 0 ]; then
+      ./scripts/feeds install -p "$feed" "${selected_feed_packages[@]}"
+    fi
   done
 }
 
@@ -214,6 +255,12 @@ if [ -d "$PROFILE_DIR/files" ]; then
 fi
 
 apply_build_options
+cat >> .config <<EOF
+CONFIG_DEVEL=y
+CONFIG_CCACHE=y
+CONFIG_CCACHE_DIR="$CCACHE_DIR"
+CONFIG_DOWNLOAD_FOLDER="$DOWNLOAD_DIR"
+EOF
 cp -f .config "$REQUESTED_CONFIG_FILE"
 
 awk -F= '
@@ -238,11 +285,14 @@ fi
 
 make defconfig
 verify_final_config
+grep -Fqx 'CONFIG_CCACHE=y' .config
+grep -Fqx "CONFIG_DOWNLOAD_FOLDER=\"$DOWNLOAD_DIR\"" .config
 
 if [ "$PREPARE_ONLY" = "1" ]; then
   rm -rf "$OUTPUT_DIR"
   mkdir -p "$OUTPUT_DIR"
   cp -f .config "$OUTPUT_DIR/${PROFILE}.config"
+  git rev-parse HEAD > "$OUTPUT_DIR/source-commit.txt"
   echo "Source preparation complete: $OPENWRT_DIR"
   exit 0
 fi
@@ -252,14 +302,26 @@ fi
 make package/base-files/clean
 
 if [ "$JOBS" -le 0 ]; then
-  JOBS="$(($(nproc) + 1))"
+  JOBS="$(nproc)"
+  memory_jobs="$(awk '/MemTotal:/ {print int($2 / 1572864)}' /proc/meminfo)"
+  [ "$memory_jobs" -gt 0 ] || memory_jobs=1
+  [ "$JOBS" -le "$memory_jobs" ] || JOBS="$memory_jobs"
 fi
 
-make -j"$JOBS" || make V=s
+# Download first so a transient network failure does not discard build progress.
+for attempt in 1 2 3; do
+  if make -j"$JOBS" download; then
+    break
+  fi
+  [ "$attempt" -lt 3 ] || { echo "Source downloads failed after 3 attempts" >&2; exit 1; }
+done
+
+make -j"$JOBS" || make -j1 V=s
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 cp -rf bin/targets/*/*/* "$OUTPUT_DIR"/
 cp -f .config "$OUTPUT_DIR/${PROFILE}.config"
+git rev-parse HEAD > "$OUTPUT_DIR/source-commit.txt"
 
 echo "Build output: $OUTPUT_DIR"

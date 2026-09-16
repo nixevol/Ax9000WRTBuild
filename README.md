@@ -112,6 +112,24 @@ Docker 构建会自动将回环地址转换为 `host.docker.internal`。
 
 构建缓存保存在 Docker 命名卷 `openwrt-build-work`，Compose、命令行脚本和网页构建共用该卷。普通增量构建会保留下载、工具链和中间产物；使用 `-Clean`，或在 Web 端右上角勾选“清理”后构建，会清理 OpenWrt 源码树并重新构建。
 
+普通构建默认复用已经拉取的源码及 feeds，不会每次自动升级上游。需要更新到当前分支最新版本时执行：
+
+```powershell
+.\scripts\build-docker.ps1 -UpdateSources
+```
+
+首次构建或新增/修改 feed 地址时仍会自动下载相应源码。下载包单独保存在宿主机 `work/downloads/`，编译器缓存保存在卷内 `/work/ccache`（默认上限 8 GiB）。`-Clean` 会重建源码、工具链和中间产物，但保留上述两类缓存。构建日志持久保存在 `outputs/build-logs/`。
+
+同一设备配置同时只允许一个构建访问缓存。线程数为自动时，会同时参考 CPU 数和可用的系统总内存，避免在内存较少的容器中开启过多编译任务。
+
+完整构建成功且没有其他构建运行时，可把卷及容器镜像备份到宿主机：
+
+```powershell
+.\scripts\backup-build-cache.ps1 -IncludeImage
+```
+
+默认备份目录为 `work/cache-backups/`；下载包已在 `work/downloads/`，不重复装入卷备份。Docker 数据被重置后，可以先 `docker load -i work/cache-backups/openwrt-local-builder-25.12.tar` 恢复镜像，再将卷备份解压到一个空的 `openwrt-build-work` 卷。卷包含已生成的固件配置及中间文件，应作为私人构建数据保存。不要执行 `docker system prune --volumes` 或删除该卷，否则需要恢复备份或重新编译。
+
 固件输出到 `outputs/ax9000/`。网页构建成功后会把固件、manifest、buildinfo、校验文件和配置打包为：
 
 ```text

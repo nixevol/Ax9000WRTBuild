@@ -3,6 +3,7 @@ param(
     [ValidateRange(0, 64)]
     [int]$Jobs = 0,
     [switch]$Clean,
+    [switch]$UpdateSources,
     [string]$OptionsFile = "",
     [string]$ContainerName = "openwrt-local-builder-run"
 )
@@ -51,6 +52,7 @@ $dockerArgs = @(
     "-e", "PROFILE=$Profile",
     "-e", "JOBS=$Jobs",
     "-e", "CLEAN=$CleanValue",
+    "-e", "UPDATE_SOURCES=$([int]$UpdateSources.IsPresent)",
     "-v", "${Root}:/workspace",
     "-v", "openwrt-build-work:/work"
 )

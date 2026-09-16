@@ -122,6 +122,11 @@ LUCI_LINK_PATTERN = re.compile(
     r'Powered by (?P<label>\{\{ version\.luciname \}\} '
     r'\(\{\{ version\.luciversion \}\}\))</a>'
 )
+ARGON_DIST_LINK_PATTERN = re.compile(
+    r'<a(?P<attrs>[^>]*href="\{\{ version\.disturl \}\}"[^>]*)>'
+    r'(?P<label>\{\{ version\.distname \}\} \{\{ version\.distversion \}\}'
+    r'-\{\{ version\.distrevision \}\})</a>'
+)
 
 
 def load_options(path: Path) -> dict[str, Any]:
@@ -311,6 +316,8 @@ def patch_signature_template(
         )
     if mode in {"ucode_link", "argon_link"}:
         matches = list(LUCI_LINK_PATTERN.finditer(text))
+        if mode == "argon_link" and not matches:
+            matches = list(ARGON_DIST_LINK_PATTERN.finditer(text))
         if len(matches) != 1:
             raise ValueError(f"branding anchor changed or is ambiguous: {source_path}")
         match = matches[0]

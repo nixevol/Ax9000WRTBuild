@@ -99,17 +99,26 @@ def install_packages(manifest: Path, source_dir: Path) -> list[str]:
     package_root = source_dir.resolve() / "package" / "openwrt-local"
     package_root.mkdir(parents=True, exist_ok=True)
     installed: list[str] = []
+    cache_root = source_dir.resolve().parent / "external-packages"
 
     for package in packages:
         destination = package_root / package["name"]
         if destination.exists():
             shutil.rmtree(destination)
         try:
-            clone_repository(package["url"], destination)
-            run_git(["checkout", "--detach", package["revision"]], cwd=destination)
-            actual_revision = run_git(["rev-parse", "HEAD"], cwd=destination).lower()
+            cached = cache_root / package["name"] / package["revision"]
+            if not (cached / ".git").is_dir():
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                clone_repository(package["url"], cached)
+                run_git(["checkout", "--detach", package["revision"]], cwd=cached)
+            if run_git(["remote", "get-url", "origin"], cwd=cached) != package["url"]:
+                raise RuntimeError(f"cached repository URL mismatch for {package['name']}")
+            actual_revision = run_git(["rev-parse", "HEAD"], cwd=cached).lower()
             if actual_revision != package["revision"]:
                 raise RuntimeError(f"revision mismatch for {package['name']}")
+            run_git(["reset", "--hard", package["revision"]], cwd=cached)
+            run_git(["clean", "-ffdx"], cwd=cached)
+            shutil.copytree(cached, destination, ignore=shutil.ignore_patterns(".git"))
             if not (destination / "Makefile").is_file():
                 raise RuntimeError(f"external package has no Makefile: {package['name']}")
             for relative_path in package["executables"]:
@@ -119,7 +128,6 @@ def install_packages(manifest: Path, source_dir: Path) -> list[str]:
                         f"external package executable is missing: {package['name']}/{relative_path}"
                     )
                 executable.chmod(0o755)
-            shutil.rmtree(destination / ".git")
         except Exception:
             shutil.rmtree(destination, ignore_errors=True)
             raise

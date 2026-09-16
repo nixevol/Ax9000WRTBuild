@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync swig unzip zlib1g-dev file wget curl ca-certificates dwarves \
     llvm python3-pyelftools libpython3-dev aria2 jq qemu-utils ccache \
     rename libelf-dev device-tree-compiler libgmp3-dev libmpc-dev \
-    libfuse-dev sudo time xz-utils patch gosu && \
+    libfuse-dev sudo time xz-utils zstd bc patch gosu && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN if id ubuntu >/dev/null 2>&1; then \
