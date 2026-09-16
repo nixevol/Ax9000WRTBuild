@@ -1,0 +1,40 @@
+#!/bin/sh /etc/rc.common
+# 在日志服务之前恢复上一轮启动的崩溃记录，不重启任何网络服务。
+# shellcheck disable=SC2034
+START=11
+
+start() {
+	# OpenWrt 使用支持 local 的 BusyBox ash。
+	# shellcheck disable=SC3043
+	local release memmap
+	release="$(uname -r)"
+	[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "xiaomi,ax9000" ] || return 1
+	[ "$release" = "6.12.91" ] || {
+		logger -t ax9000-crash-capture "Unsupported kernel $release; rebuild matching capture modules"
+		return 1
+	}
+	memmap="$(hexdump -v -e '1/1 "%02x"' /sys/firmware/devicetree/base/reserved-memory/ramoops@51200000/reg 2>/dev/null)"
+	[ "$memmap" = "00000000512000000000000000100000" ] || return 1
+
+	# 使用设备已预留的同一块内存。阻止 DT 的 4 KiB 默认布局抢先绑定，
+	# 由上游 ramoops 的模块参数建立较大的崩溃/console/pmsg 分区。
+	if [ ! -d /sys/module/ramoops ]; then
+		printf '%s\n' ax9000-reserved-ramoops > /sys/bus/platform/devices/51200000.ramoops/driver_override || return 1
+	fi
+	[ -d /sys/module/reed_solomon ] || insmod "/lib/modules/$release/reed_solomon.ko" || return 1
+	[ -d /sys/module/pstore ] || insmod "/lib/modules/$release/pstore.ko" kmsg_bytes=131072 || return 1
+	[ -d /sys/module/ramoops ] || insmod "/lib/modules/$release/ramoops.ko" \
+		mem_address=0x51200000 mem_size=0x100000 record_size=0x20000 \
+		console_size=0x40000 pmsg_size=0x20000 max_reason=2 || return 1
+	[ -d /sys/bus/platform/drivers/ramoops/ramoops ] || return 1
+	mkdir -p /sys/fs/pstore
+	grep -qs ' /sys/fs/pstore pstore ' /proc/mounts || mount -t pstore pstore /sys/fs/pstore || return 1
+	/usr/sbin/ax9000-crash-archive || return 1
+	printf '<6>ax9000-crash-capture: active boot_id=%s\n' "$(cat /proc/sys/kernel/random/boot_id)" > /dev/kmsg
+	printf 'ax9000-crash-capture boot_id=%s wall_clock=%s\n' "$(cat /proc/sys/kernel/random/boot_id)" "$(date -Iseconds)" > /dev/pmsg0
+}
+
+stop() {
+	# 停止服务不卸载记录器，避免在关机阶段失去内核日志。
+	return 0
+}
